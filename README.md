@@ -8,7 +8,8 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 
 ## Learn and practice
 
-- 15 chapters, 45 concept questions, and a 30-question final (24/30 passes).
+- 16 chapters, 48 concept questions, and a 32-question final (26/32 passes).
+- End-to-end GPT-style training: data/tokenization, pretraining loss and optimizer updates, mixed precision/distribution, checkpoint recovery, SFT/preference branches, evaluation, and release; not an undisclosed proprietary recipe.
 - Interactive attention, KV-cache, NDCG, and DPO calculators.
 - Visual atlas: architecture, Q/K/V multiplication, masks/softmax, multi-head shapes, KV cache, PagedAttention, FlashAttention online softmax, CUDA, RAG, and agent loops.
 - Clickable lifecycle diagrams in every chapter, with worked toy numbers and explicit assumptions.

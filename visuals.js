@@ -359,6 +359,14 @@ const VISUALS = (() => {
       ["Optimizer step", "Clear gradients deliberately, apply clipping/scaling where needed, then update."],
       ["Held-out checks", "Loss, factuality, task metrics, slices, and product outcomes answer different questions."]
     ]],
+    "gpt-training": ["From a corpus to an evaluated GPT-style assistant", [
+      ["Data + tokenizer", "Authorize and version the corpus, protect evaluation splits, tokenize, and define packing/boundary policies. Check provenance, contamination, and valid-target counts."],
+      ["Initialize decoder", "Choose or load the decoder configuration/checkpoint. Test finite forward/loss/gradients and causal behavior on a tiny batch before scaling."],
+      ["Pretrain loop", "Repeat forward logits, shifted/masked token loss, backward, and an optimizer update. Normalize accumulated/distributed losses over the intended valid tokens."],
+      ["Validate + checkpoint", "Measure held-out loss and independent task slices. Save weights, optimizer/scheduler/RNG state, data position, versions, and counters; test resumption."],
+      ["Post-train", "SFT learns demonstrations. A justified preference branch may use a reward model plus PPO, or direct DPO; these are not universally required consecutive stages."],
+      ["Release + monitor", "Gate quality, behavior, safety, serving cost/latency, and export parity. Roll out with rollback. Production conversations do not automatically update model weights."]
+    ]],
     pytorch: ["The tensor contract", [
       ["[B,T,d]", "Start from a batch of hidden states with explicit dtype, device, and stride."],
       ["Project Q/K/V", "Linear projections produce the head representations; parameters must be registered."],
