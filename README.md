@@ -12,6 +12,7 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 - Interactive attention, KV-cache, NDCG, and DPO calculators.
 - Visual atlas: architecture, Q/K/V multiplication, masks/softmax, multi-head shapes, KV cache, PagedAttention, FlashAttention online softmax, CUDA, RAG, and agent loops.
 - Clickable lifecycle diagrams in every chapter, with worked toy numbers and explicit assumptions.
+- A clickable architecture diagram with 16 detailed transformer component explanations, including positional information, residuals, normalization, feed-forward networks, cross-attention, and the distinction between attention and vocabulary softmax.
 - Six PyTorch and four PySpark guided coding exercises with hints and saved answers.
 - Two downloadable notebooks with executable tests and reference solutions.
 - Search, notes, progress tracking, score history, and JSON backup export.

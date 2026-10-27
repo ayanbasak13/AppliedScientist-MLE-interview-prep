@@ -117,6 +117,29 @@
 .viz-graph-node .viz-svg-small{font-size:10px;fill:#829473}
 .viz-graph-node.is-current rect{fill:#286d54;stroke:#286d54}
 .viz-graph-node.is-current text{fill:white}
+.viz-architecture-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:22px;align-items:start;margin-top:18px}
+.lesson-visuals .viz-architecture-layout{grid-template-columns:minmax(0,1fr)}
+.viz-architecture-scroll{margin:0}
+.viz-architecture-graph{display:block;width:100%;min-width:500px}
+.viz-architecture-part{cursor:pointer}
+.viz-architecture-part rect{fill:#edf3e6;stroke:#9db78a;stroke-width:1.5}
+.viz-architecture-part text{font:17px "Segoe UI",Arial,sans-serif;fill:#3a5d40}
+.viz-architecture-part .viz-svg-small{font-size:12px;fill:#6c815e}
+.viz-architecture-part.is-current rect{fill:#286d54;stroke:#286d54;stroke-width:3}
+.viz-architecture-part.is-current text{fill:#fff}
+.viz-architecture-part:focus rect,.viz-architecture-stack:focus rect{stroke:#ad7138;stroke-width:4}
+.viz-architecture-stack{cursor:pointer}
+.viz-architecture-stack>rect{fill:#f8faf4;stroke:#bccfaf;stroke-dasharray:6 4}
+.viz-architecture-stack>text,.viz-architecture-label{font:14px "Segoe UI",Arial,sans-serif;fill:#6b825d}
+.viz-architecture-stack.is-current>rect{fill:#e2efd5;stroke:#51853f;stroke-width:3}
+.viz-architecture-detail{min-width:0}
+.viz-architecture-detail h4{font:24px/1.35 var(--serif);margin:0 0 15px;color:#2d5a40}
+.viz-architecture-detail p{font-size:12px;line-height:1.95;color:#607754;margin:0 0 15px}
+.viz-architecture-detail .equation{font:11px/1.9 Consolas,monospace;background:#eff4e8;padding:14px;border:1px solid #d5e0c9;border-radius:6px;overflow-wrap:anywhere;white-space:normal;margin:16px 0}
+.viz-architecture-detail .viz-flow-row{gap:6px}
+.viz-architecture-detail .viz-node{flex-basis:40%}
+@media(min-width:1151px){.lesson-aside{max-height:calc(100vh - 40px);overflow-y:auto}}
+@media(max-width:1150px){.viz-architecture-layout{grid-template-columns:minmax(0,1fr)}}
 .viz-agent-status{background:#ecf3e7;padding:15px 18px;border-radius:7px;border-left:3px solid #6f9c57}
 .viz-agent-status>span{font-size:9px;letter-spacing:1.1px;color:#839674}
 .viz-agent-status h4{font:20px var(--serif);margin:8px 0}

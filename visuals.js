@@ -87,6 +87,69 @@ const VISUALS = (() => {
     return `<div class="viz-graph-scroll" tabindex="0" role="group" aria-label="${label}. Scroll horizontally on small screens."><svg class="viz-graph" viewBox="0 0 760 255" role="img" aria-labelledby="${id}-graph-title"><title id="${id}-graph-title">${label}. Current node: ${active}.</title><defs><marker id="${id}-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6" fill="#809778"/></marker></defs>${edges.map(edge => `<path d="${edge}" fill="none" stroke="#9eaf96" stroke-width="2" marker-end="url(#${id}-arrow)"/>`).join("")}${nodes.map(([key, x, y, title, detail]) => `<g class="viz-graph-node ${key === active ? "is-current" : ""}"><rect x="${x}" y="${y}" width="145" height="62" rx="8"/><text x="${x + 72}" y="${y + 26}" text-anchor="middle">${title}</text><text class="viz-svg-small" x="${x + 72}" y="${y + 46}" text-anchor="middle">${detail}</text></g>`).join("")}</svg></div>`;
   }
 
+  function architectureDiagram(state) {
+    const marker = `architecture-${state.family}-arrow`;
+    const box = (x, y, label, detail, parts) => `<g class="viz-architecture-part${parts.includes(state.stage) ? " is-current" : ""}" role="button" tabindex="0" data-architecture-node="${x}-${y}" data-architecture-part="${parts[0]}" aria-pressed="${parts.includes(state.stage)}" aria-label="${label}: explain ${TRANSFORMER_STEPS[parts[0]].short}"><rect x="${x}" y="${y}" width="220" height="60" rx="8"/><text x="${x + 110}" y="${y + 25}" text-anchor="middle">${label}</text><text x="${x + 110}" y="${y + 46}" text-anchor="middle" class="viz-svg-small">${detail}</text></g>`;
+    const path = (d, residual = false) => `<path d="${d}" fill="none" stroke="${residual ? "#b18449" : "#7d9571"}" stroke-width="2" marker-end="url(#${marker})"/>`;
+    const chain = (x, positions) => positions.slice(1).map((y, i) => path(`M${x},${positions[i]} V${y + 60}`)).join("");
+    const stack = (x, y, width, height, label) => `<g role="button" tabindex="0" data-architecture-node="stack-${x}" data-architecture-part="11" aria-label="Explain repeated ${label} blocks" aria-pressed="${state.stage === 11}" class="viz-architecture-stack${state.stage === 11 ? " is-current" : ""}"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="14"/><text x="${x + 12}" y="${y + 20}">${label} block &times; L</text></g>`;
+    let drawing;
+    if (state.family === "seq2seq") {
+      drawing = `${stack(35, 405, 295, 400, "Encoder")}${stack(430, 225, 300, 580, "Decoder")}
+        ${chain(175, [1030, 940, 850, 720, 630, 540, 450])}${chain(575, [1030, 940, 850, 720, 630, 540, 450, 360, 270, 170, 80])}
+        ${path("M175,450 V375 H400 V570 H465")}<text x="220" y="365" class="viz-architecture-label">Encoder memory supplies K,V</text><text x="590" y="617" class="viz-architecture-label">Q</text>
+        ${path("M175,825 H320 V660 H285", true)}${path("M175,615 H310 V480 H285", true)}
+        ${path("M575,825 H720 V660 H685", true)}${path("M575,615 H710 V480 H685", true)}${path("M575,435 H720 V300 H685", true)}
+        ${box(65, 1030, "Source tokens", "Input IDs [B,S]", [0])}${box(65, 940, "Token embeddings", "[B,S,d_model]", [1])}${box(65, 850, "Add position encoding", "Embedding + position", [2])}
+        ${box(65, 720, "Multi-head self-attention", "Bidirectional source attention", [3, 5, 6])}${box(65, 630, "Add &amp; Norm", "Residual, then LayerNorm", [7, 8])}${box(65, 540, "Feed-forward network", "Position-wise nonlinear MLP", [9])}${box(65, 450, "Add &amp; Norm", "Encoder output / memory", [7, 8])}
+        ${box(465, 1030, "Shifted target tokens", "Previous target tokens [B,T]", [0, 14, 15])}${box(465, 940, "Target embeddings", "[B,T,d_model]", [1])}${box(465, 850, "Add position encoding", "Embedding + position", [2])}
+        ${box(465, 720, "Causal multi-head self-attn", "Q/K/V from target states", [3, 4, 5, 6])}${box(465, 630, "Add &amp; Norm", "Residual, then LayerNorm", [7, 8])}${box(465, 540, "Cross-attention", "Q: decoder / K,V: encoder", [10])}${box(465, 450, "Add &amp; Norm", "Residual, then LayerNorm", [7, 8])}${box(465, 360, "Feed-forward network", "Position-wise nonlinear MLP", [9])}${box(465, 270, "Add &amp; Norm", "Target hidden states", [7, 8])}${box(465, 170, "Vocabulary projection", "Linear head: [B,T,V_vocab]", [12])}${box(465, 80, "Vocabulary softmax", "Distribution over next tokens", [13])}
+        <text x="575" y="38" text-anchor="middle" class="viz-architecture-label">TARGET OUTPUT PROBABILITIES</text><text x="175" y="1130" text-anchor="middle" class="viz-architecture-label">ENCODER / SOURCE</text><text x="575" y="1130" text-anchor="middle" class="viz-architecture-label">DECODER / TARGET</text>`;
+    } else if (state.family === "decoder") {
+      drawing = `${stack(215, 335, 385, 505, "Pre-norm decoder")}${chain(380, [1030, 940, 850, 770, 690, 610, 530, 450, 370, 280, 190, 100])}
+        ${path("M380,835 H585 V640 H490", true)}${path("M380,595 H560 V400 H490", true)}
+        ${box(270, 1030, "Prompt / previous tokens", "One causal sequence [B,T]", [0, 14, 15])}${box(270, 940, "Token embeddings", "[B,T,d_model]", [1])}${box(270, 850, "Position handling", "RoPE rotates Q/K inside attention", [2])}
+        ${box(270, 770, "Normalization", "Before attention (pre-norm)", [8])}${box(270, 690, "Causal multi-head self-attn", "Q/K/V + position + mask", [3, 4, 5, 6])}${box(270, 610, "Residual addition", "x + attention update", [7])}${box(270, 530, "Normalization", "Before the MLP", [8])}${box(270, 450, "Feed-forward network", "Feature mixing / often gated", [9])}${box(270, 370, "Residual addition", "h + MLP update", [7])}
+        ${box(270, 280, "Final normalization", "After the complete stack", [8])}${box(270, 190, "Vocabulary projection", "[B,T,d_model] to [B,T,V_vocab]", [12])}${box(270, 100, "Vocabulary softmax", "Next-token distribution", [13])}<text x="380" y="48" text-anchor="middle" class="viz-architecture-label">SELECT TOKEN, APPEND, REPEAT</text>`;
+    } else {
+      drawing = `${stack(215, 415, 385, 425, "Post-norm encoder")}${chain(380, [1030, 940, 850, 750, 660, 570, 480, 360])}
+        ${path("M380,825 H585 V690 H490", true)}${path("M380,645 H560 V510 H490", true)}
+        ${box(270, 1030, "Input tokens", "Non-padding source positions", [0])}${box(270, 940, "Token embeddings", "[B,T,d_model]", [1])}${box(270, 850, "Position information", "Illustrative additive positions", [2])}${box(270, 750, "Multi-head self-attention", "Bidirectional; mask padding", [3, 5, 6])}${box(270, 660, "Add &amp; Norm", "Residual, then LayerNorm", [7, 8])}${box(270, 570, "Feed-forward network", "Per-token nonlinear processing", [9])}${box(270, 480, "Add &amp; Norm", "Contextual hidden states", [7, 8])}${box(270, 360, "Task-specific head", "Pooling / tagging / classification", [12])}<text x="380" y="290" text-anchor="middle" class="viz-architecture-label">OUTPUT DEPENDS ON THE TASK</text>`;
+    }
+    return `<div class="viz-graph-scroll viz-architecture-scroll" tabindex="0" role="group" aria-label="Transformer architecture. Data flows upward. Select a component to explain it; scroll horizontally on small screens."><svg class="viz-architecture-graph" viewBox="0 0 760 1160" role="group" aria-labelledby="architecture-diagram-title"><title id="architecture-diagram-title">${state.family === "seq2seq" ? "Original post-norm encoder–decoder" : state.family === "decoder" ? "Illustrative pre-norm decoder-only" : "Illustrative post-norm encoder-only"} transformer. Active topic: ${TRANSFORMER_STEPS[state.stage].short}.</title><defs><marker id="${marker}" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto-start-reverse"><path d="M0,0 L6,3 L0,6" fill="#809778"/></marker></defs>${drawing}</svg></div>`;
+  }
+  function architectureExample(stage) {
+    if (stage === 0) return `<div class="viz-flow-row">${node("I like ML", "Illustrative token boundaries")}${arrow}${node("[7, 12, 4]", "IDs, not semantic magnitudes")}</div>`;
+    if (stage === 1) return `<div class="viz-equation-row">${matrix("Embedding rows E[7], E[12], E[4]", X)}</div>`;
+    if (stage === 2) return `<div class="viz-equation-row">${matrix("Token embedding", [[1, 0]])}<span>+</span>${matrix("Position 1", [[Math.sin(1), Math.cos(1)]])}<span>=</span>${matrix("Position-aware input", [[1 + Math.sin(1), Math.cos(1)]])}</div>${note("Additive sinusoidal toy, not RoPE. The full original encoding uses multiple frequencies.")}`;
+    if (stage === 3) return `<div class="viz-equation-row">${matrix("Q = XW_Q", multiply(X, weights.Q))}${matrix("K = XW_K", multiply(X, weights.K))}${matrix("V = XW_V", multiply(X, weights.V))}</div>`;
+    if (stage === 4) return `<div class="viz-equation-row">${matrix("Already-scaled scores", [[2, 1, 0]])}<span>+</span>${matrix("Causal mask for this row", [[0, 0, -Infinity]])}<span>=</span>${matrix("Masked logits", [[2, 1, -Infinity]])}</div>`;
+    if (stage === 5) {
+      const probabilities = [softmax([2, 1, -Infinity])], values = [[1, 0], [0, 2], [9, 9]];
+      return `<div class="viz-equation-row">${matrix("Attention weights", probabilities)}<span>&times;</span>${matrix("Values", values)}<span>=</span>${matrix("Mixed output", multiply(probabilities, values))}</div>`;
+    }
+    if (stage === 6) return `<div class="viz-flow-row">${node("Head 1", "[T,4], own attention")}${node("Head 2", "[T,4], own attention")}${arrow}${node("Concatenate", "[T,8]")}${arrow}${node("Output projection W_O", "[T,8]")}</div>`;
+    if (stage === 7) return `<div class="viz-equation-row">${matrix("Residual x", [[1, 2]])}<span>+</span>${matrix("Sublayer update", [[0.1, -0.2]])}<span>=</span>${matrix("Updated state", [[1.1, 1.8]])}</div>`;
+    if (stage === 8) return `<div class="viz-equation-row">${matrix("Features at one token", [[1, 3]])}<span>&rarr;</span>${matrix("LayerNorm, gamma=1 / beta=0", [[-1 / Math.sqrt(1 + 1e-5), 1 / Math.sqrt(1 + 1e-5)]])}</div>${formula("Mean = 2; population variance = 1; epsilon = 0.00001. Normalization is across features, not tokens.")}`;
+    if (stage === 9) {
+      const expanded = multiply([[-1, 2]], [[1, 0, 1, 0], [0, 1, 0, -1]]);
+      const activated = expanded.map(row => row.map(value => Math.max(0, value)));
+      return `<div class="viz-equation-row">${matrix("Expanded xW_1", expanded)}<span>&rarr;</span>${matrix("ReLU", activated)}<span>&rarr;</span>${matrix("Reprojected via W_2", multiply(activated, [[1, 0], [0, 1], [1, 1], [0, -1]]))}</div>`;
+    }
+    if (stage === 10) return `<div class="viz-flow-row">${node("Decoder Q", "3 target positions")}${node("Encoder K,V", "5 source positions")}${arrow}${node("Scores", "[B,H,3,5], rectangular")}</div>`;
+    if (stage === 11) return `<div class="viz-flow-row">${node("Block 1", "Parameters theta_1")}${arrow}${node("Block 2", "Parameters theta_2")}${arrow}${node("Block L", "Parameters theta_L")}</div>`;
+    if (stage === 12) return `<div class="viz-equation-row">${matrix("Hidden state", [[1, 0]])}<span>&times;</span>${matrix("Toy W_vocab", [[2, 1, 0], [0, 0, 0]])}<span>=</span>${matrix("Logits: cat / dog / EOS", [[2, 1, 0]])}</div>`;
+    if (stage === 13) return `<div class="viz-equation-row">${matrix("Vocabulary logits", [[2, 1, 0]])}<span>&rarr;</span>${matrix("Vocabulary probabilities", [softmax([2, 1, 0])])}</div>${note("Columns are cat, dog, EOS—not context positions. Probabilities are computed from the displayed logits.")}`;
+    if (stage === 14) return `<div class="viz-flow-row">${node("Prompt / prefix")}${arrow}${node("All model layers")}${arrow}${node("Next-token choice")}${arrow}${node("Append + repeat")}</div>`;
+    return `<div class="viz-flow-row">${node("Training inputs", "BOS | I | like | ML")}${arrow}${node("Shifted labels", "I | like | ML | EOS")}${arrow}${node("Loss + optimizer", "Valid targets only")}</div>`;
+  }
+  function architectureWalkthrough(state) {
+    const step = TRANSFORMER_STEPS[state.stage];
+    const missing = (state.stage === 10 && state.family !== "seq2seq") || ([12, 13, 14, 15].includes(state.stage) && state.family === "encoder");
+    const scope = missing ? note("This operation is not part of the selected encoder/decoder family as illustrated. Its explanation is a comparison; switch to encoder–decoder to locate cross-attention, or a generative decoder to locate next-token prediction.") : "";
+    return `<p class="viz-note">Read the diagram bottom to top. Green marks the selected operation; gold paths are residual bypasses. Click a block, use the topic selector, or use Previous/Next. The original model is post-norm; the decoder-only comparison is pre-norm. All 16 explanations also appear as ordinary chapter sections below. Worked examples are separate tiny fixtures, not a continuous numerical forward pass through a trained model.</p><div class="viz-architecture-layout">${architectureDiagram(state)}<div class="viz-architecture-detail"><h4 data-architecture-heading>Step ${state.stage + 1}: ${step.title}</h4><p class="viz-sr-only" role="status">Selected explanation: ${step.short}</p>${scope}${step.body}${architectureExample(state.stage)}</div></div>`;
+  }
+
   const specs = {
     attention: {
       title: "Q, K, V: watch the matrix multiplication", subtitle: "Follow one head from input vectors to a weighted mixture of values. Every displayed result is computed, not a decorative image.",
@@ -120,39 +183,11 @@ const VISUALS = (() => {
       }
     },
     architecture: {
-      title: "Architecture first: three transformer families", subtitle: "Begin with the whole model. Compare who can attend to whom, then inspect the components inside a common decoder block.",
-      initial: () => ({ family: "decoder", stage: 0 }),
-      controls: id => `<div class="viz-controls">${control(`${id}-family`, "Architecture family", select(`${id}-family`, "family", [["decoder", "Decoder-only (generative LLM)"], ["encoder", "Encoder-only (representations)"], ["seq2seq", "Encoder–decoder (source → target)"]], "decoder"))}${control(`${id}-stage`, "Inspect a stage", select(`${id}-stage`, "stage", [[0, "Tokens"], [1, "Embeddings"], [2, "Attention + residual"], [3, "MLP + residual"], [4, "Output / prediction"]], 0))}</div>`,
-      paint: state => {
-        if (state.family === "encoder") {
-          const descriptions = [
-            "The input is tokenized as one source sequence. Padding is not evidence: exclude padded key positions with the appropriate mask.",
-            "Token embeddings and positional information initialize a vector per position. Task-specific special tokens or segment embeddings depend on the architecture.",
-            "Bidirectional self-attention lets each input position use other non-padding input positions. All Q/K/V come from that encoder layer's input representations; there is no future-token restriction in this illustrative encoder.",
-            "Attention and position-wise MLP sublayers each have residual/normalization structure. The MLP transforms features independently at each position. The original paper used post-norm; other encoders differ.",
-            "The encoder produces contextual representations [B,T,d_model]. A task head may predict a class per token, pool into a sequence representation, or predict masked tokens. An embedding model needs an appropriate pooling/projection and training objective—not just an arbitrary vector taken from a generative model."
-          ];
-          return `<div class="viz-flow-row">${node("Source text", "Entire input", state.stage === 0 ? "accent" : "")}${arrow}${node("Token + position", "[B,T,d_model]", state.stage === 1 ? "accent" : "")}</div><div class="viz-decoder-block"><span class="eyebrow">ENCODER BLOCK &times; L</span><div class="viz-flow-row">${node("Self-attention", "Bidirectional; padding masked", state.stage === 2 ? "accent" : "")}${arrow}${node("Residual + norm", "Placement varies")}${arrow}${node("Position-wise MLP", "Residual + norm", state.stage === 3 ? "accent" : "")}</div></div><div class="viz-flow-row">${node("Contextual representations", "[B,T,d_model]")}${arrow}${node("Task-specific head", "Pooling / tagging / classification", state.stage === 4 ? "accent" : "")}</div><div class="viz-explanation" role="status">${descriptions[state.stage]}</div>${note("Bidirectional describes which positions may exchange information, not a recurrent forward/backward pass. Encoder architectures and downstream heads vary.")}`;
-        }
-        if (state.family === "seq2seq") {
-          const descriptions = [
-            "Source and target are separate sequences and can have different lengths S and T. During teacher-forced training, target inputs are shifted right so each position predicts the next target token.",
-            "The encoder embeds source tokens and the decoder embeds target tokens, each with positional information. Do not concatenate the two diagrams into a single causal-only stack.",
-            "The encoder uses bidirectional self-attention. The decoder first uses causal self-attention, then cross-attention: Q comes from decoder states; K/V come from encoder outputs. Cross-attention scores are [B,H,T,S], not necessarily square.",
-            "Both stacks include position-wise MLPs plus residual/normalization around sublayers. The diagram groups these operations and is not a claim about exact norm placement. Encoder outputs are reused as cross-attention memory.",
-            "The decoder output head predicts a target-vocabulary distribution. Training evaluates target positions in parallel with a causal mask; generation feeds back one sampled target token at a time until a stop condition."
-          ];
-          return `<div class="viz-flow-row">${node("Source tokens", "Length S", state.stage === 0 ? "accent" : "")}${arrow}${node("Source embeddings", "[B,S,d_model]", state.stage === 1 ? "accent" : "")}${arrow}${node("Encoder blocks", "Bidirectional attention + MLP", state.stage === 2 ? "accent" : "")}</div><div class="viz-cross-memory"><strong>Encoder output memory [B,S,d_model]</strong><span>↓ supplies K and V to decoder cross-attention</span></div><div class="viz-flow-row">${node("Shifted target tokens", "Length T", state.stage === 0 ? "accent" : "")}${arrow}${node("Target embeddings + position", "[B,T,d_model]", state.stage === 1 ? "accent" : "")}</div><div class="viz-decoder-block"><span class="eyebrow">DECODER BLOCK &times; L / RESIDUALS + NORMALIZATION AROUND SUBLAYERS</span><div class="viz-flow-row">${node("Causal self-attention", "Q/K/V from decoder", state.stage === 2 ? "accent" : "")}${arrow}${node("Cross-attention", "Q: decoder / K,V: encoder", state.stage === 2 ? "accent" : "")}${arrow}${node("Position-wise MLP", "Feature mixing", state.stage === 3 ? "accent" : "")}</div></div><div class="viz-flow-row">${node("Target vocabulary head", "[B,T,V_target]", state.stage === 4 ? "accent" : "")}${arrow}${node("Next target token", "Predict then feed back", state.stage === 4 ? "accent" : "")}</div><div class="viz-explanation" role="status">${descriptions[state.stage]}</div>${note("This is the high-level family used by the original Transformer. Source attention may read the entire authorized source; the causal restriction applies to target self-attention. Norm placement and position encoding are separate architecture choices.")}`;
-        }
-        const descriptions = [
-          "Tokenization maps text to IDs. The toy sentence has three tokens for illustration; real tokenizer boundaries can differ.",
-          "Embedding lookup produces [B,T,d_model] hidden states. Position must also be represented. Absolute embeddings can be added here; RoPE instead rotates Q/K inside attention.",
-          "In this illustrative pre-norm block, normalize, compute causal multi-head attention, project the concatenated heads, then add the original residual stream. RoPE, when used, acts on Q/K, not V.",
-          "Normalize and apply a position-wise MLP (often gated), then add its input residual. The MLP mixes feature dimensions separately at each token; attention mixes information across tokens.",
-          "Repeat the block L times, apply a final normalization and vocabulary projection, and softmax over vocabulary logits. At inference, the final prompt position predicts the first new token."
-        ];
-        return `<div class="viz-flow-row">${node("Text", '"I like ML"', state.stage === 0 ? "accent" : "")}${arrow}${node("Token IDs", "[1, T]", state.stage === 0 ? "accent" : "")}${arrow}${node("Embedding lookup", "[1, T, d_model]", state.stage === 1 ? "accent" : "")}</div><div class="viz-decoder-block"><span class="eyebrow">ONE PRE-NORM DECODER BLOCK &times; L</span><div class="viz-residual"><span>Residual x bypasses the sublayer</span><div class="viz-flow-row">${node("Norm", "Per token")}${arrow}${node("Multi-head attention", "Causal Q/K/V + position", state.stage === 2 ? "accent" : "")}${arrow}${node("Add x", "Residual sum", state.stage === 2 ? "accent" : "")}</div></div><div class="viz-residual"><span>Updated hidden state bypasses the MLP</span><div class="viz-flow-row">${node("Norm", "Per token")}${arrow}${node("MLP", "Feature mixing", state.stage === 3 ? "accent" : "")}${arrow}${node("Add residual", "[1, T, d_model]", state.stage === 3 ? "accent" : "")}</div></div></div><div class="viz-flow-row">${node("Final norm")}${arrow}${node("Vocabulary projection", "[1, T, Vocab]")}${arrow}${node("Softmax / sample", "Next-token distribution", state.stage === 4 ? "accent" : "")}</div><div class="viz-explanation" role="status">${descriptions[state.stage]}</div>${note("This is one common architecture, not a claim that every transformer has identical norm placement, MLP type, position encoding, or output-weight tying.")}`;
-      }
+      title: "Transformer architecture: explain every block", subtitle: "Start with the original encoder–decoder diagram, then compare encoder-only and modern pre-norm decoder-only models. Select any component for its purpose, math, worked example, and common mistakes.",
+      initial: () => ({ family: "seq2seq", stage: 0 }),
+      steps: TRANSFORMER_STEPS.length,
+      controls: id => `<div class="viz-controls">${control(`${id}-family`, "Architecture family", select(`${id}-family`, "family", [["seq2seq", "Original encoder–decoder (post-norm)"], ["decoder", "Decoder-only example (pre-norm)"], ["encoder", "Encoder-only example (post-norm)"]], "seq2seq"))}${control(`${id}-stage`, "Explain an individual step", select(`${id}-stage`, "stage", TRANSFORMER_STEPS.map((step, index) => [index, `${index + 1}. ${step.short}`]), 0))}</div>${stepButtons(TRANSFORMER_STEPS.length)}`,
+      paint: architectureWalkthrough
     },
     heads: {
       title: "Split heads. Attend. Concatenate.", subtitle: "Follow the feature dimension without confusing a reshape with a change in token order.",
@@ -430,7 +465,7 @@ const VISUALS = (() => {
     ]]
   };
   const lessonWidgets = {
-    transformers: ["architecture", "attention", "heads"], pytorch: ["heads", "attention"],
+    transformers: ["architecture"], pytorch: ["heads", "attention"],
     inference: ["kv", "paged", "flash"], cuda: ["gpu"], rag: ["rag"],
     agents: ["agent"], "agent-eval": ["agent", "rag"], "system-design": ["rag", "agent"]
   };
@@ -449,6 +484,12 @@ const VISUALS = (() => {
     const flow = flowMarkup(lessonId);
     return `<section id="visual-explainer" class="lesson-visuals" aria-label="Visual concept walkthroughs"><div class="section-heading"><div><span class="eyebrow">SEE IT BEFORE YOU DERIVE IT</span><h2>A visual mental model.</h2></div><a href="#visuals">Open visual atlas &rarr;</a></div>${lessonId === "transformers" ? widgets + flow : flow + widgets}</section>`;
   }
+  function sectionMarkup(lessonId, section) {
+    if (lessonId !== "transformers") return "";
+    if (section.diagramStep === 3) return widgetMarkup("attention");
+    if (section.diagramStep === 6) return widgetMarkup("heads");
+    return "";
+  }
   function atlasMarkup() {
     return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">Nine interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", agent: "Agent loop" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
   }
@@ -465,10 +506,11 @@ const VISUALS = (() => {
     let count = spec.steps;
     if (type === "agent") count = state.scenario === "budget" ? 4 : 8;
     if (count) {
-      state.step = Math.min(state.step, count - 1);
-      root.querySelector('[data-action="previous"]').disabled = state.step === 0;
-      root.querySelector('[data-action="next"]').disabled = state.step === count - 1;
-      root.querySelector("[data-step-label]").textContent = `${state.step + 1} / ${count}`;
+      const stepKey = type === "architecture" ? "stage" : "step";
+      state[stepKey] = Math.max(0, Math.min(state[stepKey], count - 1));
+      root.querySelector('[data-action="previous"]').disabled = state[stepKey] === 0;
+      root.querySelector('[data-action="next"]').disabled = state[stepKey] === count - 1;
+      root.querySelector("[data-step-label]").textContent = `${state[stepKey] + 1} / ${count}`;
     }
     root.querySelector("[data-canvas]").innerHTML = spec.paint(state, `viz-${type}`);
   }
@@ -485,6 +527,21 @@ const VISUALS = (() => {
       const spec = specs[root.dataset.visual];
       const state = spec.initial();
       updateWidget(root, state);
+      function selectArchitecturePart(part) {
+        const restoreFocus = document.activeElement === part;
+        const key = part.dataset.architectureNode;
+        state.stage = Number(part.dataset.architecturePart);
+        root.querySelector('[data-control="stage"]').value = state.stage;
+        updateWidget(root, state);
+        if (restoreFocus) root.querySelector(`[data-architecture-node="${key}"]`).focus();
+      }
+      root.addEventListener("keydown", event => {
+        const part = event.target.closest("[data-architecture-part]");
+        if (part && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          selectArchitecturePart(part);
+        }
+      });
       root.addEventListener("input", event => {
         const controlName = event.target.dataset.control;
         if (!controlName) return;
@@ -494,10 +551,17 @@ const VISUALS = (() => {
         updateWidget(root, state);
       });
       root.addEventListener("click", event => {
+        const part = event.target.closest("[data-architecture-part]");
+        if (part) {
+          selectArchitecturePart(part);
+          return;
+        }
         const button = event.target.closest("button");
         if (!button) return;
         if (button.dataset.action) {
-          state.step += button.dataset.action === "next" ? 1 : -1;
+          const stepKey = root.dataset.visual === "architecture" ? "stage" : "step";
+          state[stepKey] += button.dataset.action === "next" ? 1 : -1;
+          if (stepKey === "stage") root.querySelector('[data-control="stage"]').value = state.stage;
           updateWidget(root, state);
         } else if (button.dataset.scoreRow !== undefined) {
           const restoreFocus = document.activeElement === button;
@@ -517,5 +581,5 @@ const VISUALS = (() => {
       destination.focus({ preventScroll: true });
     }));
   }
-  return { lessonMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation } };
+  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation } };
 })();
