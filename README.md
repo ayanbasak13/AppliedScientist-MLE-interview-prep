@@ -10,6 +10,8 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 
 - 15 chapters, 45 concept questions, and a 30-question final (24/30 passes).
 - Interactive attention, KV-cache, NDCG, and DPO calculators.
+- Visual atlas: architecture, Q/K/V multiplication, masks/softmax, multi-head shapes, KV cache, PagedAttention, FlashAttention online softmax, CUDA, RAG, and agent loops.
+- Clickable lifecycle diagrams in every chapter, with worked toy numbers and explicit assumptions.
 - Six PyTorch and four PySpark guided coding exercises with hints and saved answers.
 - Two downloadable notebooks with executable tests and reference solutions.
 - Search, notes, progress tracking, score history, and JSON backup export.

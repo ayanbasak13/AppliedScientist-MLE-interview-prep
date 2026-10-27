@@ -117,7 +117,14 @@
     const saved = state.quizzes[lesson.id];
     const index = GUIDE.lessons.indexOf(lesson);
     main.innerHTML = `<div class="lesson-layout"><article><header class="lesson-header"><span class="eyebrow">CHAPTER ${lesson.icon} / ${escape(GUIDE.stages[lesson.stage])}</span><h1>${escape(lesson.title)}</h1><p class="intro">${escape(lesson.subtitle)}</p><div class="lesson-meta">${lesson.time} min read <span>&middot;</span> ${lesson.sections.length} sections <span>&middot;</span> 3-question concept check</div><div class="tag-row">${lesson.tags.map(tag => `<span class="tag">${escape(tag)}</span>`).join("")}</div><div class="objective"><strong>By the end:</strong> ${escape(lesson.objective)}</div></header><div class="lesson-body">${lesson.sections.map((section, i) => `<section class="lesson-section" id="section-${i}"><h2>${section.title}</h2>${section.body}</section>`).join("")}<section class="sources"><h3>Read the original ideas</h3>${lesson.sources.map(([label, url]) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${escape(label)} ↗</a>`).join("")}</section><section class="quiz" id="concept-check"><span class="eyebrow">PAUSE. RETRIEVE. REINFORCE.</span><h2>Check your intuition.</h2><p class="quiz-intro">Answer all three before checking. Explanations appear after submission; retry as often as you like. Chapter completion is self-reported, not a passing grade.</p><form id="lesson-quiz" data-lesson="${lesson.id}">${quizMarkup(lesson.questions, "lesson", saved ? saved.answers : null)}<p class="inline-error" id="quiz-error" role="alert" hidden></p><div id="quiz-result" aria-live="polite"></div><div class="quiz-controls"><button class="button" type="submit">Check answers &rarr;</button><button class="button secondary" type="button" id="retry-quiz" ${saved ? "" : "hidden"}>Try again</button></div></form></section><div class="lesson-actions"><button class="button" id="complete-lesson" data-id="${lesson.id}">${state.completed.includes(lesson.id) ? "✓ Completed · Mark incomplete" : "Mark chapter complete ✓"}</button>${index < GUIDE.lessons.length - 1 ? `<a class="button secondary" href="#lesson/${GUIDE.lessons[index + 1].id}">Next chapter &rarr;</a>` : '<a class="button secondary" href="#exam">Take the final assessment &rarr;</a>'}</div></div></article><aside class="lesson-aside" aria-label="Chapter contents and notes"><h3>IN THIS CHAPTER</h3>${lesson.sections.map((section, i) => `<a href="#section-${i}" data-section="${i}">${section.title}</a>`).join("")}<a href="#concept-check" data-section="quiz">Concept check</a><div class="notes-area"><label for="lesson-notes">YOUR MARGIN NOTES</label><textarea id="lesson-notes" data-id="${lesson.id}" placeholder="An intuition, a question, a detail from your project...">${escape(state.notes[lesson.id] || "")}</textarea><div class="save-status" id="note-status" aria-live="polite">Private · saved on this browser</div></div></aside></div>`;
+    main.querySelector(".lesson-header").insertAdjacentHTML("afterend", VISUALS.lessonMarkup(lesson.id));
+    main.querySelector(".lesson-aside h3").insertAdjacentHTML("afterend", '<a href="#visual-explainer" data-section="visual">Visual walkthroughs</a>');
+    VISUALS.mount(main);
     if (saved) showFeedback(lesson.questions, saved.answers, "lesson");
+  }
+  function visuals() {
+    main.innerHTML = VISUALS.atlasMarkup();
+    VISUALS.mount(main);
   }
   function showFeedback(questions, answers, prefix) {
     let score = 0;
@@ -253,7 +260,7 @@
     const hash = location.hash.slice(1) || "home";
     const [page, id] = hash.split("/");
     const lesson = page === "lesson" ? lessonById(id) : null;
-    const validPage = ["home", "curriculum", "lab", "coding", "spark-coding", "practice", "exam"].includes(page) || lesson;
+    const validPage = ["home", "curriculum", "visuals", "lab", "coding", "spark-coding", "practice", "exam"].includes(page) || lesson;
     const nextTrack = page === "spark-coding" ? "spark" : "pytorch";
     if ((page === "coding" || page === "spark-coding") && nextTrack !== codingTrack) {
       codingTrack = nextTrack;
@@ -265,12 +272,13 @@
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-    const labels = { home: "Overview", curriculum: "Learning path", lab: "Interactive lab", coding: "PyTorch coding", "spark-coding": "Spark coding", practice: "Interview studio", exam: "Final assessment" };
+    const labels = { home: "Overview", curriculum: "Learning path", visuals: "Visual atlas", lab: "Interactive lab", coding: "PyTorch coding", "spark-coding": "Spark coding", practice: "Interview studio", exam: "Final assessment" };
     document.getElementById("breadcrumb").textContent = lesson ? `Chapter ${lesson.icon}` : labels[page] || "Not found";
     document.title = `${lesson ? lesson.title : labels[page] || "Not found"} · Field Guide`;
     if (!validPage) main.innerHTML = '<div class="empty-state"><h1>This page is not in the guide.</h1><a class="button" href="#home">Back to overview</a></div>';
     else if (lesson) lessonPage(lesson);
-    else ({ home, curriculum, lab, coding, "spark-coding": coding, practice, exam: examPage })[page]();
+    else ({ home, curriculum, visuals, lab, coding, "spark-coding": coding, practice, exam: examPage })[page]();
+    if (page === "home" || page === "lab") main.querySelector(".page-heading").insertAdjacentHTML("afterend", '<div class="viz-explanation"><strong>Prefer to see it first?</strong> <a href="#visuals">Open the Visual Atlas</a> for architecture, Q/K/V arithmetic, attention memory, RAG, and agent decision loops.</div>');
     updateProgress();
     if (focus) {
       main.focus({ preventScroll: true });
@@ -285,7 +293,8 @@
       curriculum();
     } else if (element.dataset.section !== undefined) {
       event.preventDefault();
-      document.getElementById(element.dataset.section === "quiz" ? "concept-check" : `section-${element.dataset.section}`).scrollIntoView({ behavior: "smooth" });
+      const target = element.dataset.section === "visual" ? "visual-explainer" : element.dataset.section === "quiz" ? "concept-check" : `section-${element.dataset.section}`;
+      document.getElementById(target).scrollIntoView({ behavior: "smooth" });
     } else if (element.id === "complete-lesson") {
       const id = element.dataset.id;
       state.completed = state.completed.includes(id) ? state.completed.filter(value => value !== id) : [...state.completed, id];
