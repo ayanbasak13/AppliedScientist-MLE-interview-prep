@@ -187,7 +187,162 @@ const VISUALS = (() => {
     return metric(`${label} (${numerator} / ${denominator})`, value === null ? "N/A: zero denominator" : `${(value * 100).toFixed(1)}%`, id);
   };
 
+  function tokenObjective(logits, targets) {
+    if (!Array.isArray(logits) || !logits.length || !Array.isArray(targets) || targets.length !== logits.length ||
+        !Array.isArray(logits[0]) || !logits[0].length || logits.some((row, i) => !Array.isArray(row) ||
+          row.length !== logits[0].length || row.some(value => !Number.isFinite(value)) ||
+          !Number.isInteger(targets[i]) || targets[i] < 0 || targets[i] >= row.length)) {
+      throw new RangeError("Token loss requires finite rectangular logits and one valid target index per row.");
+    }
+    const probabilities = logits.map(softmax);
+    const losses = logits.map((row, i) => {
+      const maximum = Math.max(...row);
+      return maximum - row[targets[i]] + Math.log(sum(row.map(value => Math.exp(value - maximum))));
+    });
+    const loss = sum(losses) / losses.length;
+    return { probabilities, losses, loss, perplexity: Math.exp(loss) };
+  }
+  function perplexityMetrics(probabilities) {
+    if (!Array.isArray(probabilities) || !probabilities.length ||
+        probabilities.some(value => !Number.isFinite(value) || value <= 0 || value > 1)) {
+      throw new RangeError("Perplexity needs at least one target probability in (0, 1].");
+    }
+    const losses = probabilities.map(value => -Math.log(value));
+    const loss = sum(losses) / losses.length;
+    return { losses, loss, geometricMean: Math.exp(-loss), perplexity: Math.exp(loss) };
+  }
+  const trainingVocabulary = ["I", "like", "ML", "&lt;eos&gt;"];
+  const trainingTargets = [1, 2, 3];
+  const trainingHead = [[0.1, -0.1, 0.2, 0], [-0.1, 0.1, 0, 0.2]];
+  const rmsNormalize = rows => rows.map(row => {
+    const scale = Math.sqrt(sum(row.map(value => value * value)) / row.length + 1e-5);
+    return row.map(value => value / scale);
+  });
+  const addRows = (a, b) => a.map((row, i) => row.map((value, j) => value + b[i][j]));
+  function trainingForward(head = trainingHead) {
+    if (!Array.isArray(head) || head.length !== 2 ||
+        head.some(row => !Array.isArray(row) || row.length !== 4 || row.some(value => !Number.isFinite(value)))) {
+      throw new RangeError("The training toy requires a finite [2,4] vocabulary head.");
+    }
+    const position = [[0, 0], [0.1, 0], [0.2, 0]];
+    const input = addRows(X, position);
+    const normalized = rmsNormalize(input);
+    const q = multiply(normalized, weights.Q);
+    const k = multiply(normalized, weights.K);
+    const v = multiply(normalized, weights.V);
+    const attended = attention(q, k, v, true);
+    const residual = addRows(input, attended.output);
+    const mlpInput = rmsNormalize(residual);
+    const expanded = multiply(mlpInput, [[0.2, -0.1], [0.1, 0.2]]);
+    const activated = expanded.map(row => row.map(value => Math.max(0, value)));
+    const mlp = multiply(activated, [[0.2, 0.1], [-0.1, 0.2]]);
+    const hidden = addRows(residual, mlp);
+    const logits = multiply(hidden, head);
+    return { position, input, normalized, q, k, v, attended, residual, mlpInput, expanded, activated, mlp, hidden,
+      logits, ...tokenObjective(logits, trainingTargets) };
+  }
+  function trainingSnapshot(learningRate = 0.05) {
+    if (!Number.isFinite(learningRate) || learningRate < 0 || learningRate > 0.1) {
+      throw new RangeError("The teaching SGD learning rate must be in [0, 0.1].");
+    }
+    const before = trainingForward();
+    const logitGradient = before.probabilities.map((row, i) => row.map((value, j) =>
+      (value - Number(j === trainingTargets[i])) / trainingTargets.length));
+    const headGradient = multiply(transpose(before.hidden), logitGradient);
+    const hiddenGradient = multiply(logitGradient, transpose(trainingHead));
+    const updatedHead = trainingHead.map((row, i) => row.map((value, j) => value - learningRate * headGradient[i][j]));
+    return { before, logitGradient, headGradient, hiddenGradient, updatedHead, after: trainingForward(updatedHead) };
+  }
+  function trainingBars(probabilities, target) {
+    return `<div class="viz-probabilities" role="group" aria-label="Next-token probabilities">${probabilities.map((p, j) =>
+      `<div class="viz-probability${j === target ? " is-target" : ""}"><span>${trainingVocabulary[j]}${j === target ? " (target)" : ""}</span><div class="viz-probability-track"><i style="width:${p * 100}%"></i></div><strong>${(p * 100).toFixed(2)}%</strong></div>`).join("")}</div>`;
+  }
+  const trainingStages = ["Align tokens and build input states", "Normalize and project into Q, K, V", "Mask future positions and compute attention", "Mix values and add the residual", "Transform features through the MLP", "Project hidden states into vocabulary probabilities", "Compute loss and send gradients backward", "Update the head, then run forward again"];
+  function trainingBlockDiagram(snapshot, state) {
+    const b = snapshot.before;
+    const r = state.row;
+    const vector = values => `<span class="viz-state-cells">${values.map(value =>
+      `<span class="${value < 0 ? "negative" : ""}">${format(value)}</span>`).join("")}</span>`;
+    const block = (step, label, detail, values) => `<button type="button" class="viz-training-block${state.step === step ? " is-active" : ""}" data-training-step="${step}" aria-pressed="${state.step === step}"><strong>${step + 1}. ${label}</strong><small>${detail}</small>${vector(values)}</button>`;
+    const down = '<div class="viz-training-arrow" aria-hidden="true">&darr;</div>';
+    return `<div class="viz-training-map" role="group" aria-label="Interactive transformer training blocks, showing the selected token row"><p class="viz-note">Forward pass &darr; / selected row ${r}: ${tokens.slice(0, r + 1).join(" ")}. Click a block to inspect its full tensors.</p>
+      ${block(0, "Tokens + embeddings + positions", "X: two features per token", b.input[r])}${down}
+      <div class="viz-training-decoder"><h4>One pre-norm transformer block</h4>
+      ${block(1, "RMSNorm -> Q, K, V", "Selected query vector Q", b.q[r])}${down}
+      ${block(2, "Causal self-attention", "A: weights over [I, like, ML]", b.attended.probabilities[r])}${down}
+      <div class="viz-training-skip"><span>Skip X &darr; then add</span>${block(3, "Mix values + residual", "H = X + A V", b.residual[r])}</div>${down}
+      <div class="viz-training-skip"><span>Skip H &darr; then add</span>${block(4, "RMSNorm -> MLP + residual", "Y = H + MLP(Norm(H))", b.hidden[r])}</div>
+      <p class="viz-note">Backbone frozen in this update demo. Full pretraining repeats blocks and normally learns their weights too.</p></div>${down}
+      ${block(5, "Vocabulary head -> softmax", "p(next token): [I, like, ML, eos]", b.probabilities[r])}${down}
+      ${block(6, "Correct target -> cross-entropy", "Selected token loss, then batch mean", [b.losses[r], b.loss])}
+      <div class="viz-training-backward"><strong>Backward &uarr;: loss -> logits -> W and Y</strong><small>dL/dY for this row (computed):</small>${vector(snapshot.hiddenGradient[r])}<p>Full pretraining continues through MLP, attention and embeddings; those earlier gradients are not computed in this head-only demo.</p></div>
+      ${block(7, "SGD update -> run forward again", `Only W changes; loss before / after (lr=${state.learningRate})`, [b.loss, snapshot.after.loss])}
+      <div class="viz-training-loop">Updated W &uarr; returns to the vocabulary head. The next forward pass uses new weights.</div></div>`;
+  }
   const specs = {
+    "training-state": {
+      title: "Inside a training step: follow the actual tensor states",
+      subtitle: "Eight numerical snapshots of one tiny decoder. Follow a token row, then inspect an exact gradient and output-head SGD update.",
+      initial: () => ({ step: 0, row: 1, learningRate: 0.05 }), steps: 8,
+      controls: id => `<div class="viz-controls">${control(`${id}-step`, "Training snapshot", select(`${id}-step`, "step", trainingStages.map((title, i) => [i, `${i + 1}. ${title}`]), 0))}${control(`${id}-row`, "Follow this input row / prefix", select(`${id}-row`, "row", tokens.map((token, i) => [i, `${i}: ${tokens.slice(0, i + 1).join(" ")} -> ${trainingVocabulary[trainingTargets[i]]}`]), 1))}${control(`${id}-rate`, "SGD learning rate (head only)", select(`${id}-rate`, "learningRate", [[0.01, "0.01"], [0.05, "0.05"], [0.1, "0.10"]], 0.05))}</div>${stepButtons(8)}`,
+      paint: state => {
+        const s = trainingSnapshot(state.learningRate);
+        const b = s.before;
+        const r = state.row;
+        const target = trainingTargets[r];
+        const m = (label, values) => matrix(label, values, { row: r });
+        const row = (...items) => `<div class="viz-equation-row">${items.join("<span>&rarr;</span>")}</div>`;
+        let body;
+        if (state.step === 0) {
+          body = `<div class="viz-token-strip">${tokens.map((token, i) => `<div class="viz-token${i === r ? " current" : ""}"><strong>Input: ${token}</strong><small>row ${i} / ID ${i}</small><strong>Target: ${trainingVocabulary[trainingTargets[i]]}</strong></div>`).join("")}</div>${row(m("Embedding E", X), m("Position P", b.position), m("X = E + P", b.input))}${formula("Batch B=1 (omitted), sequence T=3, width d=2, vocabulary V=4.<br>Inputs [I, like, ML]; targets [like, ML, &lt;eos&gt;].")}${note("Rows are input positions; columns are hidden features. E+P is elementwise addition, not matrix multiplication. No weights have changed yet.")}`;
+        } else if (state.step === 1) {
+          body = row(m("X", b.input), m("RMSNorm(X)", b.normalized), m("Q", b.q), m("K", b.k), m("V", b.v)) +
+            formula("RMSNorm(x) = x / sqrt(mean(x squared) + 0.00001); gain fixed to 1.<br>Q = Norm(X) WQ; K = Norm(X) WK; V = Norm(X) WV.") +
+            `<div class="viz-equation-row">${matrix("WQ", weights.Q)}${matrix("WK", weights.K)}${matrix("WV", weights.V)}</div>` +
+            note("The highlighted token now has three different projections. These activations depend on the input; the shared projection weights stay fixed during this forward pass.");
+        } else if (state.step === 2) {
+          body = row(m("QK transpose", b.attended.raw), m("Scaled + causal mask", b.attended.scaled), matrix("A: attention over positions", b.attended.probabilities, { row: r, heat: true })) +
+            formula(`A = row_softmax(QK transpose / sqrt(2) + causal_mask)<br>Selected query "${tokens[r]}" can use only: ${tokens.slice(0, r + 1).join(", ")}.`) +
+            note("Rows are queries and columns are input key positions [I, like, ML]. Striped -inf cells become exactly zero probability. Earlier rows cannot copy the later target token.");
+        } else if (state.step === 3) {
+          body = row(matrix("A", b.attended.probabilities, { row: r, heat: true }), m("V", b.v), m("O = A V", b.attended.output), m("H = X + O", b.residual)) +
+            formula(`For row ${r}, feature 0: O = ${b.attended.probabilities[r].map((p, j) => `${format(p)} * ${format(b.v[j][0])}`).join(" + ")} = ${format(b.attended.output[r][0])}<br>H[${r},0] = ${format(b.input[r][0])} + ${format(b.attended.output[r][0])} = ${format(b.residual[r][0])}`) +
+            note("A V is a matrix product: weighted content is summed over allowed positions. X+O is an elementwise residual addition. The result is a contextual vector, not a predicted word.");
+        } else if (state.step === 4) {
+          body = row(m("RMSNorm(H)", b.mlpInput), m("MLP first projection", b.expanded), m("ReLU: max(0,x)", b.activated), m("MLP output", b.mlp), m("Y = H + MLP", b.hidden)) +
+            `<div class="viz-equation-row">${matrix("MLP W1", [[0.2, -0.1], [0.1, 0.2]])}${matrix("MLP W2", [[0.2, 0.1], [-0.1, 0.2]])}</div>` +
+            formula("Y = H + ReLU(RMSNorm(H) W1) W2") +
+            note("The same MLP transforms each row's features independently; it does not mix token positions. Width stays 2 in this toy so the numbers fit; real MLPs usually expand the intermediate width.");
+        } else if (state.step === 5) {
+          body = row(m("Y: hidden states", b.hidden), matrix("W: vocabulary head", trainingHead), m("Z = Y W: logits", b.logits), m("P: vocabulary softmax", b.probabilities)) +
+            trainingBars(b.probabilities[r], target) +
+            formula(`Columns now mean [I, like, ML, &lt;eos&gt;], NOT input positions.<br>Prefix "${tokens.slice(0, r + 1).join(" ")}": target ${trainingVocabulary[target]}, p_target = ${b.probabilities[r][target].toFixed(6)}.`) +
+            note("P has shape [3,4]. Its rows sum to 1. Sampling is unnecessary for training: the loss reads the probability in each row's known target column.");
+        } else if (state.step === 6) {
+          body = `<div class="viz-comparison-scroll"><table class="concept-table"><caption>Three targets contribute to the average loss</caption><thead><tr><th>Prefix</th><th>Target</th><th>p(target)</th><th>-ln(p)</th></tr></thead><tbody>${tokens.map((_, i) => `<tr><td>${tokens.slice(0, i + 1).join(" ")}</td><td>${trainingVocabulary[trainingTargets[i]]}</td><td>${b.probabilities[i][trainingTargets[i]].toFixed(6)}</td><td>${b.losses[i].toFixed(6)}</td></tr>`).join("")}</tbody></table></div><div class="viz-metrics">${metric("Mean token loss (nats)", b.loss.toFixed(6), "training-loss")}${metric("Perplexity = exp(loss)", b.perplexity.toFixed(6), "training-ppl")}</div>` +
+            row(m("G = (P - target) / 3", s.logitGradient), matrix("dL/dW = Y transpose G", s.headGradient), m("dL/dY = G W transpose", s.hiddenGradient)) +
+            formula("Backward signal: loss -> vocabulary logits -> head weights AND hidden states -> earlier decoder operations.<br>All rows supervise the same shared W; gradients accumulate across positions.") +
+            note("The target logit's gradient is negative; non-target logit gradients are positive. Negative does not mean an error: SGD subtracts the gradient, pushing in the correction direction. This demonstration updates only W, not the backbone.");
+        } else {
+          body = row(matrix("W before", trainingHead), matrix("dL/dW", s.headGradient), matrix("W after SGD", s.updatedHead)) +
+            formula(`W_new[0,${target}] = ${format(trainingHead[0][target])} - ${state.learningRate} * (${s.headGradient[0][target].toFixed(6)}) = ${s.updatedHead[0][target].toFixed(6)}<br>Recompute Z_new = Y W_new and vocabulary softmax; hidden states Y stay fixed for this head-only update.`) +
+            `<h4>Selected prefix: before the update</h4>${trainingBars(b.probabilities[r], target)}<h4>The same prefix: after the update</h4>${trainingBars(s.after.probabilities[r], target)}<div class="viz-metrics">${metric("Batch loss before", b.loss.toFixed(6), "training-before")}${metric("Batch loss after", s.after.loss.toFixed(6), "training-after")}${metric("PPL before -> after", `${b.perplexity.toFixed(3)} -> ${s.after.perplexity.toFixed(3)}`)}</div>` +
+            note("This is one real arithmetic SGD step on the displayed synthetic batch, not a training run or a generalization result. Each control redraw starts from the original weights; clicking Next does not accumulate updates. Full training would update the unfrozen backbone as well.");
+        }
+        return `<div class="viz-training-layout">${trainingBlockDiagram(s, state)}<div class="viz-training-detail"><div class="viz-step-name">${state.step + 1}. ${trainingStages[state.step]}</div><p class="viz-note">Highlighted row ${r}: "${tokens.slice(0, r + 1).join(" ")}" predicts ${trainingVocabulary[target]}. Matrices round to 3 decimals; calculations use full precision.</p>${body}</div></div>`;
+      }
+    },
+    perplexity: {
+      title: "Loss and perplexity: do the arithmetic yourself",
+      subtitle: "These sliders are the probabilities of three observed correct tokens, each under a different prefix. They are not three entries in one distribution.",
+      initial: () => ({ p1: 50, p2: 25, p3: 12.5 }),
+      controls: id => `<div class="viz-controls">${[["p1", 50], ["p2", 25], ["p3", 12.5]].map(([key, value], i) => control(`${id}-${key}`, `Token ${i + 1}: probability of its correct target (%)`, `<input id="${id}-${key}" data-control="${key}" type="range" min="0.5" max="100" step="0.5" value="${value}">`)).join("")}</div>`,
+      paint: state => {
+        const probabilities = [state.p1, state.p2, state.p3].map(p => p / 100);
+        const result = perplexityMetrics(probabilities);
+        return `<div class="viz-comparison-scroll"><table class="concept-table"><caption>Follow probability -> log -> token penalty</caption><thead><tr><th>Observed token</th><th>p(target)</th><th>ln(p)</th><th>Loss = -ln(p)</th></tr></thead><tbody>${probabilities.map((p, i) => `<tr><td>${i + 1}</td><td>${p.toFixed(3)}</td><td>${Math.log(p).toFixed(6)}</td><td>${result.losses[i].toFixed(6)}</td></tr>`).join("")}</tbody></table></div>${formula(`L = (${result.losses.map(value => value.toFixed(6)).join(" + ")}) / 3 = ${result.loss.toFixed(6)} nats<br>Geometric mean probability = (${probabilities.map(p => p.toFixed(3)).join(" * ")})^(1/3) = ${result.geometricMean.toFixed(6)}<br>PPL = exp(${result.loss.toFixed(6)}) = 1 / ${result.geometricMean.toFixed(6)} = ${result.perplexity.toFixed(6)}`)}<div class="viz-metrics">${metric("Mean loss (nats)", result.loss.toFixed(6), "ppl-loss")}${metric("Geometric mean p", result.geometricMean.toFixed(6), "ppl-geomean")}${metric("Perplexity", result.perplexity.toFixed(6), "ppl-value")}</div>${note("Try 25%,25%,25%: PPL=4. Try 100%,100%,100%: PPL=1 (ideal limit). Try 50%,50%,0.5%: one very unlikely target strongly raises loss. These are illustrative target probabilities, independent of the decoder-state viewer; sliders exclude zero because -ln(0) is infinite.")}`;
+      }
+    },
     attention: {
       title: "Q, K, V: watch the matrix multiplication", subtitle: "Follow one head from input vectors to a weighted mixture of values. Every displayed result is computed, not a decorative image.",
       initial: () => ({ step: 0, query: 1, key: 0, projection: "Q", causal: true, component: 0 }),
@@ -544,7 +699,7 @@ const VISUALS = (() => {
     inference: ["kv", "paged", "flash"], cuda: ["gpu"], rag: ["rag", "rag-scorecard"],
     agents: ["agent"], "agent-eval": ["agent-scorecard", "agent", "rag"], "system-design": ["rag", "agent"]
   };
-  const atlasTypes = ["architecture", "attention", "heads", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard"];
+  const atlasTypes = ["architecture", "attention", "heads", "training-state", "perplexity", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard"];
 
   function widgetMarkup(type) {
     const spec = specs[type];
@@ -560,13 +715,14 @@ const VISUALS = (() => {
     return `<section id="visual-explainer" class="lesson-visuals" aria-label="Visual concept walkthroughs"><div class="section-heading"><div><span class="eyebrow">SEE IT BEFORE YOU DERIVE IT</span><h2>A visual mental model.</h2></div><a href="#visuals">Open visual atlas &rarr;</a></div>${lessonId === "transformers" ? widgets + flow : flow + widgets}</section>`;
   }
   function sectionMarkup(lessonId, section) {
+    if (lessonId === "training" && section.visual) return widgetMarkup(section.visual);
     if (lessonId !== "transformers") return "";
     if (section.diagramStep === 3) return widgetMarkup("attention");
     if (section.diagramStep === 6) return widgetMarkup("heads");
     return "";
   }
   function atlasMarkup() {
-    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
+    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", "training-state": "Training states", perplexity: "Loss + perplexity", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
   }
   function updateWidget(root, state) {
     const type = root.dataset.visual;
@@ -586,6 +742,7 @@ const VISUALS = (() => {
       root.querySelector('[data-action="previous"]').disabled = state[stepKey] === 0;
       root.querySelector('[data-action="next"]').disabled = state[stepKey] === count - 1;
       root.querySelector("[data-step-label]").textContent = `${state[stepKey] + 1} / ${count}`;
+      if (type === "training-state") root.querySelector('[data-control="step"]').value = state.step;
     }
     root.querySelector("[data-canvas]").innerHTML = spec.paint(state, `viz-${type}`);
   }
@@ -626,6 +783,14 @@ const VISUALS = (() => {
         updateWidget(root, state);
       });
       root.addEventListener("click", event => {
+        const trainingBlock = event.target.closest("[data-training-step]");
+        if (trainingBlock) {
+          const restoreFocus = document.activeElement === trainingBlock;
+          state.step = Number(trainingBlock.dataset.trainingStep);
+          updateWidget(root, state);
+          if (restoreFocus) root.querySelector(`[data-training-step="${state.step}"]`).focus({ preventScroll: true });
+          return;
+        }
         const part = event.target.closest("[data-architecture-part]");
         if (part) {
           selectArchitecturePart(part);
@@ -656,5 +821,5 @@ const VISUALS = (() => {
       destination.focus({ preventScroll: true });
     }));
   }
-  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics } };
+  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics, tokenObjective, perplexityMetrics, trainingForward, trainingSnapshot } };
 })();
