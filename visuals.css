@@ -1,4 +1,24 @@
 .sidebar{overflow-y:auto}
+.sd-library,.sd-detail{min-width:0;max-width:1200px;margin:0 auto}
+.sd-tabs,.sd-toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}
+.sd-tabs [aria-current=page]{background:#e2efd9;border-color:#52816a;color:#234c40}
+.sd-provenance{font-size:12px;line-height:1.8;color:#5a7053;border-left:3px solid #a6bc95;padding-left:13px}
+.sd-search-label{display:block;font-size:12px;font-weight:650;margin:24px 0 9px;color:#294c3c}
+.sd-search,.sd-draft{width:100%;max-width:100%;min-width:0;border:1px solid #bdcdb4;border-radius:6px;padding:12px;background:#fff;color:#294c3c;font:14px/1.7 var(--sans)}
+.sd-draft{display:block;margin:10px 0 18px;resize:vertical;min-height:180px}
+.sd-result-group{margin:28px 0 42px}
+.sd-topic-card{display:block;text-decoration:none;min-width:0;margin:0;overflow-wrap:anywhere}
+.sd-topic-card:hover{border-color:#6b9476}
+.sd-topic-card h3{font:23px/1.35 var(--serif);color:#234c40;margin:13px 0}
+.sd-topic-card p,.sd-library>.panel p{font-size:12px;line-height:1.85;color:#5a7053}
+.sd-card-link{display:block;font-size:11px;font-weight:650;margin-top:18px;color:#286d54}
+.sd-detail .chapter-detail-body{font-size:14px;line-height:1.9;overflow-wrap:anywhere}
+.sd-detail .chapter-detail-body h3{font:21px/1.45 var(--serif);color:#234c40;margin:24px 0 10px}
+.sd-rubric{display:flex;align-items:flex-start;gap:10px;margin:15px 0;font-size:13px;line-height:1.7}
+.sd-rubric input{flex:none;margin-top:5px;accent-color:#286d54}
+.sd-self-check>p,#design-practice>p{font-size:12px;line-height:1.85}
+.sd-diagram .cd-card{min-width:130px}
+@media(max-width:600px){.sd-toolbar>.button,.sd-tabs>.button{width:100%;text-align:center}.sd-topic-card h3{font-size:21px}.sd-detail .chapter-detail-body{font-size:13px}}
 .chapter-takeaway{border-left:3px solid #6b9476;padding:8px 14px;background:#f0f5ec;color:#294c3c}
 .chapter-reading-controls{background:#edf3e7;border:1px solid #d5e0cf;border-radius:8px;padding:18px;margin:0 0 30px}
 .chapter-reading-controls p{font-size:12px;color:#527044;margin:8px 0 14px}
