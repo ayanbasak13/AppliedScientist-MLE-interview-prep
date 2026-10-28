@@ -21,6 +21,7 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 - Interactive tensor-storage/stride, autograd, and module-registration examples, plus a synchronous GPU-batching timeline. The Visual Atlas has 19 explainers.
 - Anthropic FDE preparation incorporates topics from [Rung](https://rungcode.io/loops/anthropic) and [Aced](https://www.aced.io/guides/anthropic-forward-deployed-engineer-interview): discovery, MCP, long-context reliability, coding, batching, enterprise rollout, and values.
 - OpenAI AI/ML-engineering practice is informed by the [Interview Coder guide](https://www.interviewcoder.co/blog/openai-ml-engineer-interview): role-specific coding, application design, evals, distributed state, recovery, and inference. Third-party interview claims are not official hiring rubrics; all mock exercises are original.
+- Question-first company mocks: 24 prompts across six round categories per company, with 48 staged follow-ups, guided six-round practice loops, pause/continue timers, saved answer/code drafts, hidden reference approaches, and question-specific self-scoring rubrics. Open #mock/anthropic or #mock/openai, also linked prominently from both company chapters and Interview Studio. Publicly reported paraphrases, guide samples, and original mock tasks are labeled separately; OpenAI FDE/application reports are not represented as a confirmed ML-engineer loop. Source evidence and its limits are shown on every question. Time budgets/order are practice design, not reported company instructions. Code is not executed and scores are self-assessments.
 - Three downloadable notebooks with executable tests and reference solutions.
 - Search, notes, progress tracking, score history, and JSON backup export.
 
@@ -32,7 +33,7 @@ Open https://app.netlify.com/drop, sign in, and drop this folder containing inde
 
 ## Privacy
 
-This community edition contains generalized synthetic practice scenarios, not a personal profile. No accounts, telemetry, runtime code execution service, or database are used. Each visitor's notes and progress stay in their own browser's localStorage for this origin; they are not synchronized across devices or deployments. Do not enter secrets. External reading links open only when clicked.
+This community edition contains generalized synthetic practice scenarios, not a personal profile. No accounts, telemetry, runtime code execution service, or database are used. Each visitor's notes, mock drafts/self-scores, and progress stay in their own browser's localStorage for this origin; they are not synchronized across devices or deployments. Do not enter secrets. External reading links open only when clicked.
 
 ## Validation scope
 

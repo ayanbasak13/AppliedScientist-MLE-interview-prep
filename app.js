@@ -13,7 +13,8 @@
     main.focus();
     main.scrollIntoView();
   });
-  let state = { completed: [], quizzes: {}, notes: {}, studio: "", exams: [], coding: {} };
+  let state = { completed: [], quizzes: {}, notes: {}, studio: "", exams: [], coding: {}, mocks: {} };
+  let mockCleanup = null;
   let codingIndex = 0;
   let codingTrack = "pytorch";
   const codingTracks = {
@@ -46,6 +47,7 @@
     if (!isPlain(value) || !Array.isArray(value.completed) || !isPlain(value.quizzes) || !isPlain(value.notes) || typeof value.studio !== "string" || !Array.isArray(value.exams)) return false;
     if (!value.completed.every(id => typeof id === "string" && lessonById(id)) || new Set(value.completed).size !== value.completed.length) return false;
     if (!Object.entries(value.notes).every(([id, note]) => lessonById(id) && typeof note === "string")) return false;
+    if (value.mocks !== undefined && !INTERVIEW_MOCKS.validDrafts(value.mocks)) return false;
     if (value.coding !== undefined && (!isPlain(value.coding) || !Object.entries(value.coding).every(([id, answers]) => {
       const exercise = Object.values(codingTracks).flatMap(track => track.exercises).find(item => item.id === id);
       return exercise && Array.isArray(answers) && answers.length === exercise.slots.length && answers.every(answer => typeof answer === "string");
@@ -61,7 +63,7 @@
     if (saved) {
       const parsed = JSON.parse(saved);
       if (!validState(parsed)) throw new Error("Saved progress has an unrecognized format.");
-      state = { ...parsed, coding: parsed.coding || {} };
+      state = { ...parsed, coding: parsed.coding || {}, mocks: parsed.mocks || {} };
     }
   } catch (error) {
     storageAvailable = false;
@@ -128,6 +130,10 @@
     const index = GUIDE.lessons.indexOf(lesson);
     main.innerHTML = `<div class="lesson-layout"><article><header class="lesson-header"><span class="eyebrow">CHAPTER ${lesson.icon} / ${escape(GUIDE.stages[lesson.stage])}</span><h1>${escape(lesson.title)}</h1><p class="intro">${escape(lesson.subtitle)}</p><div class="lesson-meta">${lesson.time} min read <span>&middot;</span> ${lesson.sections.length} sections <span>&middot;</span> 3-question concept check</div><div class="tag-row">${lesson.tags.map(tag => `<span class="tag">${escape(tag)}</span>`).join("")}</div><div class="objective"><strong>By the end:</strong> ${escape(lesson.objective)}</div></header><div class="lesson-body">${lesson.sections.map((section, i) => `<section class="lesson-section" id="section-${i}"><h2>${section.title}</h2>${section.body}</section>`).join("")}<section class="sources"><h3>Read the original ideas</h3>${lesson.sources.map(([label, url]) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${escape(label)} ↗</a>`).join("")}</section><section class="quiz" id="concept-check"><span class="eyebrow">PAUSE. RETRIEVE. REINFORCE.</span><h2>Check your intuition.</h2><p class="quiz-intro">Answer all three before checking. Explanations appear after submission; retry as often as you like. Chapter completion is self-reported, not a passing grade.</p><form id="lesson-quiz" data-lesson="${lesson.id}">${quizMarkup(lesson.questions, "lesson", saved ? saved.answers : null)}<p class="inline-error" id="quiz-error" role="alert" hidden></p><div id="quiz-result" aria-live="polite"></div><div class="quiz-controls"><button class="button" type="submit">Check answers &rarr;</button><button class="button secondary" type="button" id="retry-quiz" ${saved ? "" : "hidden"}>Try again</button></div></form></section><div class="lesson-actions"><button class="button" id="complete-lesson" data-id="${lesson.id}">${state.completed.includes(lesson.id) ? "✓ Completed · Mark incomplete" : "Mark chapter complete ✓"}</button>${index < GUIDE.lessons.length - 1 ? `<a class="button secondary" href="#lesson/${GUIDE.lessons[index + 1].id}">Next chapter &rarr;</a>` : '<a class="button secondary" href="#exam">Take the final assessment &rarr;</a>'}</div></div></article><aside class="lesson-aside" aria-label="Chapter contents and notes"><h3>IN THIS CHAPTER</h3>${lesson.sections.map((section, i) => `<a href="#section-${i}" data-section="${i}">${section.title}</a>`).join("")}<a href="#concept-check" data-section="quiz">Concept check</a><div class="notes-area"><label for="lesson-notes">YOUR MARGIN NOTES</label><textarea id="lesson-notes" data-id="${lesson.id}" placeholder="An intuition, a question, a detail from your project...">${escape(state.notes[lesson.id] || "")}</textarea><div class="save-status" id="note-status" aria-live="polite">Private · saved on this browser</div></div></aside></div>`;
     main.querySelector(".lesson-header").insertAdjacentHTML("afterend", VISUALS.lessonMarkup(lesson.id));
+    if (["anthropic-fde", "openai-aie"].includes(lesson.id)) {
+      const company = lesson.id === "anthropic-fde" ? "anthropic" : "openai";
+      main.querySelector(".lesson-header").insertAdjacentHTML("afterend", `<div class="coding-notice"><strong>Practice the interview, not another wall of text.</strong><p>Open ${INTERVIEW_MOCKS.companies[company].questions.length} sourced/labeled questions by round, a guided six-round mock, staged follow-ups, timers, saved drafts, and question-specific self-scoring rubrics. The reading below is optional background.</p><a class="button" href="#mock/${company}">Start the question-led mock &rarr;</a></div>`);
+    }
     lesson.sections.forEach((section, i) => {
       const markup = VISUALS.sectionMarkup(lesson.id, section);
       if (markup) main.querySelector(`#section-${i}`).insertAdjacentHTML("beforeend", markup);
@@ -235,6 +241,7 @@
   }
   function practice() {
     main.innerHTML = `<div class="page-heading"><div><span class="eyebrow">YOUR DESIGN DECISIONS, UNDER THE MICROSCOPE</span><h1>The interview studio.</h1><p class="intro">Use these synthetic scenarios to practice clear reasoning, evaluation, and trade-offs. They do not describe any individual's employment history.</p></div></div><div class="studio-grid">${GUIDE.scenarios.map(scenario => `<section class="panel scenario"><div class="scenario-meta"><span>${escape(scenario.kind).toUpperCase()}</span><span>${scenario.time}</span></div><h2>${escape(scenario.title)}</h2><p class="prompt">${escape(scenario.prompt)}</p><details><summary>Open the answer rubric</summary><ul>${scenario.checks.map(check => `<li>${escape(check)}</li>`).join("")}</ul></details></section>`).join("")}<section class="panel scenario"><div class="scenario-meta"><span>SELF-ASSESSMENT</span><span>10 MIN</span></div><h2>Make every claim defensible.</h2><p class="prompt">Rehearse aloud. Score each dimension from 0 (missing) to 2 (specific and correct). Aim for 8/10 or better with no technical-correctness gap.</p><ul class="review-list"><li>Problem framing and constraints</li><li>Technical correctness and derivation</li><li>Evidence and measurement</li><li>Alternatives and trade-offs</li><li>Failure handling and operational ownership</li></ul></section></div><section class="studio-note"><h2>Your rehearsal notebook.</h2><p class="intro">Draft a two-minute story. Include baseline, your decision, evidence, and one limitation. Don't paste confidential work details into a publicly shared version.</p><label for="studio-notes" class="eyebrow">PRIVATE NOTES</label><textarea id="studio-notes" placeholder="Situation → decision → experiment → result → what I would change...">${escape(state.studio)}</textarea><div id="note-status" class="save-status" aria-live="polite">Saved on this browser only</div></section>${dataControls()}`;
+    main.querySelector(".page-heading").insertAdjacentHTML("afterend", '<div class="coding-notice"><strong>Company mock interviews: questions first.</strong><p>Practice one round or a guided six-round loop. Reveal follow-ups before the reference approach, keep a draft, and use an explicit self-scoring rubric.</p><a class="button secondary small-button" href="#mock/anthropic">Anthropic FDE mock &rarr;</a> <a class="button secondary small-button" href="#mock/openai">OpenAI AI/ML mock &rarr;</a></div>');
   }
   function shuffled(list) {
     const copy = [...list];
@@ -273,10 +280,14 @@
     }).join("")}</div>${reviewIds.length ? `<h3>Review these chapters</h3><ul class="review-list">${reviewIds.map(id => `<li><a href="#lesson/${id}">${escape(lessonById(id).title)}</a></li>`).join("")}</ul>` : '<p>All correct. Try an open-ended design scenario next.</p>'}<div class="quiz-controls"><button class="button" id="retake-exam">Start a new attempt</button><a class="button secondary" href="#practice">Practice a project story</a></div></section>`;
   }
   function render(focus = true) {
+    if (mockCleanup) {
+      mockCleanup();
+      mockCleanup = null;
+    }
     const hash = location.hash.slice(1) || "home";
-    const [page, id] = hash.split("/");
+    const [page, id, question, mode] = hash.split("/");
     const lesson = page === "lesson" ? lessonById(id) : null;
-    let validPage = ["home", "curriculum", "visuals", "lab", "coding", "numpy-coding", "spark-coding", "practice", "exam"].includes(page) || lesson;
+    let validPage = ["home", "curriculum", "visuals", "lab", "coding", "numpy-coding", "spark-coding", "practice", "exam"].includes(page) || lesson || page === "mock" && INTERVIEW_MOCKS.validRoute(id || "anthropic", question, mode);
     const codingRoute = Object.entries(codingTracks).find(([, track]) => track.route === page);
     if (codingRoute && codingRoute[0] !== codingTrack) {
       codingTrack = codingRoute[0];
@@ -288,16 +299,17 @@
       else codingIndex = requestedIndex;
     }
     document.querySelectorAll("[data-nav]").forEach(link => {
-      const active = link.dataset.nav === (lesson ? "curriculum" : codingRoute ? "coding" : page);
+      const active = link.dataset.nav === (lesson ? "curriculum" : codingRoute ? "coding" : page === "mock" ? "practice" : page);
       link.classList.toggle("active", active);
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-    const labels = { home: "Overview", curriculum: "Learning path", visuals: "Visual atlas", lab: "Interactive lab", coding: "PyTorch coding", "numpy-coding": "NumPy coding", "spark-coding": "Spark coding", practice: "Interview studio", exam: "Final assessment" };
+    const labels = { home: "Overview", curriculum: "Learning path", visuals: "Visual atlas", lab: "Interactive lab", coding: "PyTorch coding", "numpy-coding": "NumPy coding", "spark-coding": "Spark coding", practice: "Interview studio", mock: "Company mock interview", exam: "Final assessment" };
     document.getElementById("breadcrumb").textContent = lesson ? `Chapter ${lesson.icon}` : labels[page] || "Not found";
     document.title = `${lesson ? lesson.title : labels[page] || "Not found"} · Field Guide`;
     if (!validPage) main.innerHTML = '<div class="empty-state"><h1>This page is not in the guide.</h1><a class="button" href="#home">Back to overview</a></div>';
     else if (lesson) lessonPage(lesson);
+    else if (page === "mock") mockCleanup = INTERVIEW_MOCKS.mount(main, id || "anthropic", question, mode, state.mocks, save);
     else ({ home, curriculum, visuals, lab, coding, "numpy-coding": coding, "spark-coding": coding, practice, exam: examPage })[page]();
     if (page === "home" || page === "lab") main.querySelector(".page-heading").insertAdjacentHTML("afterend", '<div class="viz-explanation"><strong>Prefer to see it first?</strong> <a href="#visuals">Open the Visual Atlas</a> for architecture, Q/K/V arithmetic, attention memory, RAG, and agent decision loops.</div>');
     updateProgress();
@@ -352,7 +364,7 @@
       const confirm = document.getElementById("reset-confirm");
       confirm.hidden = false;
       confirm.className = "confirm-reset";
-      confirm.innerHTML = 'Delete all saved notes, coding answers, chapter progress, quiz results, and exam history? <button class="button secondary small-button danger" id="confirm-reset">Yes, delete study data</button><button class="button secondary small-button" id="cancel-reset">Cancel</button>';
+      confirm.innerHTML = 'Delete all saved notes, coding answers, mock drafts/self-scores, chapter progress, quiz results, and exam history? <button class="button secondary small-button danger" id="confirm-reset">Yes, delete study data</button><button class="button secondary small-button" id="cancel-reset">Cancel</button>';
     } else if (element.id === "cancel-reset") document.getElementById("reset-confirm").hidden = true;
     else if (element.id === "confirm-reset") {
       try {
@@ -363,7 +375,7 @@
         warning(`Saved data could not be deleted: ${error.message} Clear this site's storage in your browser settings.`);
         return;
       }
-      state = { completed: [], quizzes: {}, notes: {}, studio: "", exams: [], coding: {} };
+      state = { completed: [], quizzes: {}, notes: {}, studio: "", exams: [], coding: {}, mocks: {} };
       activeExam = null;
       examAnswers = {};
       examResult = null;
