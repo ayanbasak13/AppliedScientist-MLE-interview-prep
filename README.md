@@ -12,6 +12,7 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 - End-to-end GPT-style training: data/tokenization, pretraining loss and optimizer updates, mixed precision/distribution, checkpoint recovery, SFT/preference branches, evaluation, and release; not an undisclosed proprietary recipe.
 - Interactive attention, KV-cache, NDCG, and DPO calculators.
 - Visual atlas: architecture, Q/K/V multiplication, masks/softmax, multi-head shapes, KV cache, PagedAttention, FlashAttention online softmax, CUDA, RAG, and agent loops.
+- Detailed RAG/agent evaluation with worked metric denominators, ranking and citation grading, risk/coverage, repeated-run reliability, fault injection, calibrated judges, uncertainty, cost/latency, monitoring, and interactive scorecards.
 - Clickable lifecycle diagrams in every chapter, with worked toy numbers and explicit assumptions.
 - A clickable architecture diagram with 16 detailed transformer component explanations, including positional information, residuals, normalization, feed-forward networks, cross-attention, and the distinction between attention and vocabulary softmax.
 - Six PyTorch and four PySpark guided coding exercises with hints and saved answers.

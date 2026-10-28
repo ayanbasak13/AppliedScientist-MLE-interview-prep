@@ -150,6 +150,43 @@ const VISUALS = (() => {
     return `<p class="viz-note">Read the diagram bottom to top. Green marks the selected operation; gold paths are residual bypasses. Click a block, use the topic selector, or use Previous/Next. The original model is post-norm; the decoder-only comparison is pre-norm. All 16 explanations also appear as ordinary chapter sections below. Worked examples are separate tiny fixtures, not a continuous numerical forward pass through a trained model.</p><div class="viz-architecture-layout">${architectureDiagram(state)}<div class="viz-architecture-detail"><h4 data-architecture-heading>Step ${state.stage + 1}: ${step.title}</h4><p class="viz-sr-only" role="status">Selected explanation: ${step.short}</p>${scope}${step.body}${architectureExample(state.stage)}</div></div>`;
   }
 
+  function rate(numerator, denominator) {
+    if (!Number.isInteger(numerator) || !Number.isInteger(denominator) || numerator < 0 || denominator < 0 || numerator > denominator) {
+      throw new RangeError("A rate requires integer counts with 0 <= numerator <= denominator.");
+    }
+    return denominator === 0 ? null : numerator / denominator;
+  }
+  function ragDecisionMetrics({ total, answerable, answeredAnswerable, answeredUnanswerable, correctAnswered }) {
+    const unanswerable = total - answerable;
+    rate(answerable, total);
+    rate(answeredAnswerable, answerable);
+    rate(answeredUnanswerable, unanswerable);
+    rate(correctAnswered, answeredAnswerable);
+    const answered = answeredAnswerable + answeredUnanswerable;
+    const warranted = unanswerable - answeredUnanswerable;
+    const unnecessary = answerable - answeredAnswerable;
+    return {
+      total, answerable, unanswerable, answeredAnswerable, answeredUnanswerable, correctAnswered, answered, warranted, unnecessary,
+      coverage: rate(answered, total), selectiveAccuracy: rate(correctAnswered, answered),
+      decisionAccuracy: rate(correctAnswered + warranted, total),
+      warrantedRate: rate(warranted, unanswerable), unnecessaryRate: rate(unnecessary, answerable)
+    };
+  }
+  function repeatedRunMetrics(rows) {
+    if (!rows.length || !rows[0].length || rows.some(row => row.length !== rows[0].length || row.some(value => value !== 0 && value !== 1))) {
+      throw new RangeError("Repeated-run outcomes require a nonempty rectangular matrix of binary results.");
+    }
+    const tasks = rows.length, repeats = rows[0].length, attempts = tasks * repeats;
+    const successes = sum(rows.map(sum));
+    const any = rows.filter(row => row.some(Boolean)).length;
+    const all = rows.filter(row => row.every(Boolean)).length;
+    return { tasks, repeats, attempts, successes, any, all, perAttempt: rate(successes, attempts), anyRate: rate(any, tasks), allRate: rate(all, tasks) };
+  }
+  const rateMetric = (label, numerator, denominator, id) => {
+    const value = rate(numerator, denominator);
+    return metric(`${label} (${numerator} / ${denominator})`, value === null ? "N/A: zero denominator" : `${(value * 100).toFixed(1)}%`, id);
+  };
+
   const specs = {
     attention: {
       title: "Q, K, V: watch the matrix multiplication", subtitle: "Follow one head from input vectors to a weighted mixture of values. Every displayed result is computed, not a decorative image.",
@@ -318,6 +355,36 @@ const VISUALS = (() => {
         return `${graph(id, nodes, edges, current[0], "Agent loop with a return from observation to action selection and an external stopping gate")}<div class="viz-agent-status"><span>SIMULATED STEP ${state.step + 1} / ${trace.length}</span><h4>${current[1]}</h4><p role="status">${current[2]}</p></div><ol class="viz-trace">${trace.slice(0, state.step + 1).map((item, i) => `<li class="${i === state.step ? "current" : ""}"><strong>${item[1]}</strong><span>${i === state.step ? item[2] : "Completed simulated transition"}</span></li>`).join("")}</ol>${note("The back edge means a tool result can trigger another decision. A fixed workflow predetermines transitions; an agent chooses within allowed transitions. This is a deterministic educational simulation: no model, tool, network action, write, or hidden reasoning trace is executed.")}`;
       }
     },
+    "rag-scorecard": {
+      title: "RAG evaluation: accuracy can rise while usefulness falls",
+      subtitle: "Change the answer/abstention policy on the same 20 synthetic requests. Inspect every numerator and denominator, including the zero-answer case.",
+      initial: () => ({ scenario: "balanced" }),
+      controls: id => control(`${id}-scenario`, "Decision policy", select(`${id}-scenario`, "scenario", [["balanced", "Balanced: answer 10 / 20"], ["cautious", "Cautious: answer 4 / 20"], ["guess", "Guess on all 20"], ["abstain", "Abstain on all 20"]], "balanced")),
+      paint: state => {
+        const policies = {
+          balanced: [9, 1, 8], cautious: [4, 0, 4], guess: [12, 8, 10], abstain: [0, 0, 0]
+        };
+        const [answeredAnswerable, answeredUnanswerable, correctAnswered] = policies[state.scenario];
+        const m = ragDecisionMetrics({ total: 20, answerable: 12, answeredAnswerable, answeredUnanswerable, correctAnswered });
+        return `<div class="viz-comparison-scroll"><table class="concept-table"><caption>Fixed gold answerability; only the policy changes</caption><thead><tr><th>Gold case type</th><th>Answered</th><th>Abstained</th><th>Total</th></tr></thead><tbody><tr><td>Answerable</td><td>${m.answeredAnswerable} (${m.correctAnswered} correct)</td><td>${m.unnecessary}</td><td>12</td></tr><tr><td>Unanswerable</td><td>${m.answeredUnanswerable} (incorrect assertions)</td><td>${m.warranted}</td><td>8</td></tr></tbody></table></div><div class="viz-metrics">${rateMetric("Coverage", m.answered, m.total, "rag-coverage")}${rateMetric("Accuracy when answering", m.correctAnswered, m.answered, "rag-selective")}${rateMetric("Warranted abstention", m.warranted, m.unanswerable, "rag-warranted")}${rateMetric("Unnecessary abstention", m.unnecessary, m.answerable, "rag-unnecessary")}${rateMetric("Toy decision accuracy", m.correctAnswered + m.warranted, m.total, "rag-decision")}</div><div class="viz-explanation" role="status">${state.scenario === "cautious" ? "Answered-query accuracy rises to 100%, but coverage falls to 20% and equal-weight decision accuracy falls to 60%. Do not report only the improved conditional metric." : state.scenario === "abstain" ? "No requests are answered, so answered-query accuracy is not applicable—not 100%. All answerable cases are missed, even though abstention is correct on the eight unanswerable cases." : state.scenario === "guess" ? "Coverage is 100%, but the system asserts answers on all eight unanswerable cases. More answers do not automatically mean more value." : "Eight correct answers plus seven warranted abstentions yield 15/20 correct decisions under the stated equal-weight toy policy."}</div>${note("Fixtures assume intentional abstentions and no operational errors. Toy decision accuracy awards one point for a correct answer or warranted abstention; real harm/benefit weights must be defined separately. These are decision metrics, not citation or faithfulness scores. No model or evaluation service is called.")}`;
+      }
+    },
+    "agent-scorecard": {
+      title: "Agent evaluation: best-of-three hides inconsistent runs",
+      subtitle: "Inspect five synthetic tasks, each attempted three times from reset state. A Pass means independently verified goal, policy, and budget compliance—not merely a confident final answer.",
+      initial: () => ({ scenario: "mixed" }),
+      controls: id => control(`${id}-scenario`, "Observed repeated-run fixture", select(`${id}-scenario`, "scenario", [["mixed", "Mixed: 8 / 15 strict successes"], ["stable", "Stable on three tasks, fails two"], ["brittle", "Every task passes only once"], ["none", "No successful attempts"]], "mixed")),
+      paint: state => {
+        const fixtures = {
+          mixed: [[1, 1, 1], [1, 1, 0], [1, 0, 1], [1, 0, 0], [0, 0, 0]],
+          stable: [[1, 1, 1], [1, 1, 1], [1, 1, 1], [0, 0, 0], [0, 0, 0]],
+          brittle: [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0]],
+          none: Array.from({ length: 5 }, () => [0, 0, 0])
+        };
+        const rows = fixtures[state.scenario], m = repeatedRunMetrics(rows);
+        return `<div class="viz-comparison-scroll"><table class="concept-table"><caption>Fixed illustrative outcomes, not real agent executions</caption><thead><tr><th>Task</th><th>Attempt 1</th><th>Attempt 2</th><th>Attempt 3</th></tr></thead><tbody>${rows.map((row, i) => `<tr><th>Task ${i + 1}</th>${row.map(value => `<td class="${value ? "viz-run-pass" : "viz-run-fail"}">${value ? "Pass" : "Fail"}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class="viz-metrics">${rateMetric("Attempt success", m.successes, m.attempts, "agent-attempt")}${rateMetric("Observed any-of-3", m.any, m.tasks, "agent-any")}${rateMetric("Observed all-3", m.all, m.tasks, "agent-all")}${metric("Total spend / strict success", m.successes ? `$18 / ${m.successes} = $${(18 / m.successes).toFixed(2)}` : "N/A: zero successes", "agent-cost")}</div><div class="viz-explanation" role="status">${state.scenario === "brittle" ? "Best-of-three looks perfect: every task succeeds once. Yet only one third of attempts pass and no task passes all three. Retries also spend time/money and require a trustworthy selector." : state.scenario === "none" ? "All attempts remain in the denominator. With no verified successes, cost per success is undefined; do not report $0 or drop the failures." : state.scenario === "stable" ? "Three tasks always pass and two always fail. Per-attempt, any-of-three, and all-three rates are all 60%, revealing a different failure pattern from random inconsistency." : "Eight of fifteen attempts pass. Four tasks pass at least once, but only one passes all three. These are three different evaluation questions."}</div>${note("Total spend is an illustrative fixed $18 across all 15 attempts, including failures. Observed any/all rates are computed directly from task rows; they are not IID probability estimates or the finite-sample pass@k estimator. Tasks can differ and runs can correlate. No real tools are invoked.")}`;
+      }
+    },
     rag: {
       title: "RAG: see where each failure is measured", subtitle: "Follow a synthetic question through evidence and generation. Retrieval quality and answer quality are separate checks.",
       initial: () => ({ scenario: "supported", stage: 0 }),
@@ -474,10 +541,10 @@ const VISUALS = (() => {
   };
   const lessonWidgets = {
     transformers: ["architecture"], pytorch: ["heads", "attention"],
-    inference: ["kv", "paged", "flash"], cuda: ["gpu"], rag: ["rag"],
-    agents: ["agent"], "agent-eval": ["agent", "rag"], "system-design": ["rag", "agent"]
+    inference: ["kv", "paged", "flash"], cuda: ["gpu"], rag: ["rag", "rag-scorecard"],
+    agents: ["agent"], "agent-eval": ["agent-scorecard", "agent", "rag"], "system-design": ["rag", "agent"]
   };
-  const atlasTypes = ["architecture", "attention", "heads", "kv", "paged", "flash", "gpu", "rag", "agent"];
+  const atlasTypes = ["architecture", "attention", "heads", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard"];
 
   function widgetMarkup(type) {
     const spec = specs[type];
@@ -499,7 +566,7 @@ const VISUALS = (() => {
     return "";
   }
   function atlasMarkup() {
-    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">Nine interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", agent: "Agent loop" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
+    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
   }
   function updateWidget(root, state) {
     const type = root.dataset.visual;
@@ -589,5 +656,5 @@ const VISUALS = (() => {
       destination.focus({ preventScroll: true });
     }));
   }
-  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation } };
+  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics } };
 })();

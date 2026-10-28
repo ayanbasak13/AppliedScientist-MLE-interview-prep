@@ -53,6 +53,8 @@
 .concept-table caption{text-align:left;font-weight:650;margin-bottom:10px;color:#527044}
 .concept-table th,.concept-table td{border:1px solid #dce5d2;padding:12px;vertical-align:top;text-align:left}
 .concept-table th{background:#edf4e5;color:#45613b}
+.concept-table td.viz-run-pass{background:#e2efd9;color:#315d3b;font-weight:650}
+.concept-table td.viz-run-fail{background:#f8eadd;color:#87582f}
 .viz-residual{border-top:2px solid #c69b67;border-right:2px solid #c69b67;border-radius:0 8px 0 0;padding-top:5px;margin-top:22px;position:relative}
 .viz-residual>span{display:block;font-size:9px;color:#997344;padding:0 5px}
 .viz-residual .viz-flow-row{margin-bottom:4px;padding-right:10px}
