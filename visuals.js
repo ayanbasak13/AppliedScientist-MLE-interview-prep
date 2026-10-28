@@ -147,7 +147,7 @@ const VISUALS = (() => {
     const step = TRANSFORMER_STEPS[state.stage];
     const missing = (state.stage === 10 && state.family !== "seq2seq") || ([12, 13, 14, 15].includes(state.stage) && state.family === "encoder");
     const scope = missing ? note("This operation is not part of the selected encoder/decoder family as illustrated. Its explanation is a comparison; switch to encoder–decoder to locate cross-attention, or a generative decoder to locate next-token prediction.") : "";
-    return `<p class="viz-note">Read the diagram bottom to top. Green marks the selected operation; gold paths are residual bypasses. Click a block, use the topic selector, or use Previous/Next. The original model is post-norm; the decoder-only comparison is pre-norm. All 16 explanations also appear as ordinary chapter sections below. Worked examples are separate tiny fixtures, not a continuous numerical forward pass through a trained model.</p><div class="viz-architecture-layout">${architectureDiagram(state)}<div class="viz-architecture-detail"><h4 data-architecture-heading>Step ${state.stage + 1}: ${step.title}</h4><p class="viz-sr-only" role="status">Selected explanation: ${step.short}</p>${scope}${step.body}${architectureExample(state.stage)}</div></div>`;
+    return `<p class="viz-note">Read bottom to top. Green marks the selected operation; gold paths bypass it. Click a block or use Previous/Next. Tiny component examples are independent fixtures.</p><div class="viz-architecture-layout">${architectureDiagram(state)}<div class="viz-architecture-detail"><h4 data-architecture-heading>Step ${state.stage + 1}: ${step.title}</h4><p class="viz-sr-only" role="status">Selected explanation: ${step.short}</p>${scope}${architectureExample(state.stage)}<details class="architecture-reading"><summary>Explain this component in detail</summary>${step.body}</details></div></div>`;
   }
 
   function rate(numerator, denominator) {
@@ -373,7 +373,33 @@ const VISUALS = (() => {
       error: mode === "missing-axis" ? "ValueError: shapes (2,3) and (2,) cannot broadcast. Keep the singleton feature axis for row centering." : null,
       output: mode === "missing-axis" ? null : input.map((row, r) => row.map((value, c) => value - (features ? means[0][c] : means[r][0]))) };
   }
+  function numpyArrayState(mode, index) {
+    if (!["vector", "matrix", "batch", "transpose"].includes(mode) || !Number.isInteger(index) || index < 0 || index > 11) throw new RangeError("Choose a known NumPy array view and a buffer element from 0 to 11.");
+    const buffer = Array.from({ length: 12 }, (_, i) => i);
+    const matrixValues = [buffer.slice(0, 4), buffer.slice(4, 8), buffer.slice(8, 12)];
+    const configs = {
+      vector: { shape: [12], strides: [8], coordinates: [index], planes: [[buffer]] },
+      matrix: { shape: [3, 4], strides: [32, 8], coordinates: [Math.floor(index / 4), index % 4], planes: [matrixValues] },
+      batch: { shape: [2, 2, 3], strides: [48, 24, 8], coordinates: [Math.floor(index / 6), Math.floor(index % 6 / 3), index % 3], planes: [[buffer.slice(0, 3), buffer.slice(3, 6)], [buffer.slice(6, 9), buffer.slice(9, 12)]] },
+      transpose: { shape: [4, 3], strides: [8, 32], coordinates: [index % 4, Math.floor(index / 4)], planes: [transpose(matrixValues)] }
+    };
+    return { ...configs[mode], buffer, value: index, byteOffset: index * 8 };
+  }
   const specs = {
+    "numpy-array": {
+      title: "See the array, its axes, and the actual memory address",
+      subtitle: "One int64 buffer. Switch its shape or transpose the matrix, then follow a selected value from coordinates to bytes.",
+      initial: () => ({ mode: "matrix", index: 5 }),
+      controls: id => `<div class="viz-controls">${control(`${id}-mode`, "Array layout", select(`${id}-mode`, "mode", [["vector", "1-D vector (12,)"], ["matrix", "2-D matrix (3,4)"], ["batch", "3-D batch (2,2,3)"], ["transpose", "Transpose the (3,4) matrix"]], "matrix"))}${control(`${id}-index`, "Select buffer element (0-11)", range(`${id}-index`, "index", 0, 11, 5))}</div>`,
+      paint: state => {
+        const s = numpyArrayState(state.mode, state.index);
+        const address = s.coordinates.map((coordinate, i) => `${coordinate}&times;${s.strides[i]}`).join(" + ");
+        const shape = `(${s.shape.join(",")}${s.shape.length === 1 ? "," : ""})`;
+        const strides = `(${s.strides.join(",")}${s.strides.length === 1 ? "," : ""})`;
+        const planes = s.planes.map((plane, b) => `<figure class="cd-grid"><figcaption>${state.mode === "batch" ? `Batch ${b}: rows &times; features` : `Array values; actual shape (${s.shape.join(",")}${s.shape.length === 1 ? "," : ""})`}</figcaption><table aria-label="${state.mode === "batch" ? `Batch ${b}` : "Array values"}"><tbody>${plane.map(row => `<tr>${row.map(value => `<td class="cd-color-${value % 6}${value === s.value ? " cd-selected" : ""}">${value}</td>`).join("")}</tr>`).join("")}</tbody></table></figure>`).join("");
+        return `<div class="cd-compare">${planes}</div><figure class="cd-grid"><figcaption>Same underlying buffer; each element is 8 bytes</figcaption><div class="cd-buffer">${s.buffer.map(value => `<span class="cd-token cd-color-${value % 6}${value === s.value ? " cd-selected" : ""}"><b>${value}</b><small>${value * 8} B</small></span>`).join("")}</div></figure><div class="viz-metrics">${metric("Shape", shape)}${metric("Byte strides", strides)}${metric(`a[${s.coordinates.join(",")}]`, s.value)}</div>${formula(`Address offset = ${address} = ${s.byteOffset} bytes`)}${note("Colors identify the same values across layouts. These reshapes of a contiguous arange buffer share storage; transposing changes strides without moving the buffer. A 1-D vector is shown in a row for display, not relabeled as a (1,12) matrix. Browser simulation; the notebook runs NumPy.")}`;
+      }
+    },
     "numpy-indexing": {
       title: "NumPy indexing: highlight exactly which cells you selected",
       subtitle: "Original arange(20).reshape(4,5) fixture. Compare scalar, slice, boolean, paired, and outer selections, then test which ones change the source.",
@@ -885,7 +911,7 @@ const VISUALS = (() => {
     inference: ["kv", "paged", "flash"], cuda: ["gpu"], rag: ["rag", "rag-scorecard"],
     agents: ["agent"], "agent-eval": ["agent-scorecard", "agent", "rag"], "system-design": ["rag", "agent"]
   };
-  const atlasTypes = ["architecture", "attention", "heads", "training-state", "perplexity", "numpy-indexing", "numpy-broadcast", "torch-storage", "torch-autograd", "torch-module", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard", "fde-batching"];
+  const atlasTypes = ["architecture", "attention", "heads", "training-state", "perplexity", "numpy-array", "numpy-indexing", "numpy-broadcast", "torch-storage", "torch-autograd", "torch-module", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard", "fde-batching"];
 
   function widgetMarkup(type) {
     const spec = specs[type];
@@ -901,6 +927,7 @@ const VISUALS = (() => {
     return `<section id="visual-explainer" class="lesson-visuals" aria-label="Visual concept walkthroughs"><div class="section-heading"><div><span class="eyebrow">SEE IT BEFORE YOU DERIVE IT</span><h2>A visual mental model.</h2></div><a href="#visuals">Open visual atlas &rarr;</a></div>${lessonId === "transformers" ? widgets + flow : flow + widgets}</section>`;
   }
   function sectionMarkup(lessonId, section) {
+    if (lessonId === "numpy" && section.title === "What an ndarray actually stores") return widgetMarkup("numpy-array");
     if (["training", "numpy", "pytorch", "anthropic-fde", "openai-aie"].includes(lessonId) && section.visual) return widgetMarkup(section.visual);
     if (lessonId !== "transformers") return "";
     if (section.diagramStep === 3) return widgetMarkup("attention");
@@ -908,7 +935,7 @@ const VISUALS = (() => {
     return "";
   }
   function atlasMarkup() {
-    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", "training-state": "Training states", perplexity: "Loss + perplexity", "numpy-indexing": "NumPy indexing", "numpy-broadcast": "NumPy broadcasting", "torch-storage": "Tensor storage", "torch-autograd": "Autograd", "torch-module": "Module registration", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability", "fde-batching": "FDE batching" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
+    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", "training-state": "Training states", perplexity: "Loss + perplexity", "numpy-array": "NumPy array shapes", "numpy-indexing": "NumPy indexing", "numpy-broadcast": "NumPy broadcasting", "torch-storage": "Tensor storage", "torch-autograd": "Autograd", "torch-module": "Module registration", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability", "fde-batching": "FDE batching" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
   }
   function updateWidget(root, state) {
     const type = root.dataset.visual;
@@ -1011,5 +1038,5 @@ const VISUALS = (() => {
       destination.focus({ preventScroll: true });
     }));
   }
-  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics, tokenObjective, perplexityMetrics, trainingForward, trainingSnapshot, torchStorageState, torchGradState, batchingSchedule, numpySelection, numpyBroadcast } };
+  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics, tokenObjective, perplexityMetrics, trainingForward, trainingSnapshot, torchStorageState, torchGradState, batchingSchedule, numpySelection, numpyBroadcast, numpyArrayState } };
 })();
