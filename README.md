@@ -1,6 +1,6 @@
 # Applied Scientist / MLE Interview Prep
 
-An interactive, browser-based learning guide covering transformers, PyTorch, SFT/DPO/PPO, FlashAttention, CUDA, retrieval, end-to-end RAG and evaluation, agents and evaluation, system design, Anthropic FDE and OpenAI AI/ML-engineering preparation, and a Spark add-on.
+An interactive, browser-based learning guide covering transformers, NumPy, PyTorch, SFT/DPO/PPO, FlashAttention, CUDA, retrieval, end-to-end RAG and evaluation, agents and evaluation, system design, Anthropic FDE and OpenAI AI/ML-engineering preparation, and a Spark add-on.
 
 ## Use locally
 
@@ -8,7 +8,8 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 
 ## Learn and practice
 
-- 18 chapters, 54 concept questions, and a 36-question final (29/36 passes).
+- 19 chapters, 57 concept questions, and a 38-question final (31/38 passes).
+- A dedicated NumPy chapter covering arrays/dtypes, indexing/ownership, broadcasting/axes, statistics and leakage-free preprocessing, local RNGs, stable numerics, least squares/SVD, einsum, regression/clustering/PCA, ufuncs, and memory-aware performance. Topic coverage draws from the full [NumPy preparation repository](https://github.com/rohanmistry231/Numpy-Interview-Preparation); teaching and examples are original. Two array/axis visual explorers and eight NumPy exercises have a separate NumPy-only notebook and direct links such as #numpy-coding/numpy-indexing.
 - End-to-end GPT-style training: data/tokenization, pretraining loss and optimizer updates, mixed precision/distribution, checkpoint recovery, SFT/preference branches, evaluation, and release; not an undisclosed proprietary recipe.
 - Interactive attention, KV-cache, NDCG, and DPO calculators.
 - Beginner-friendly chapter 2: eight numerical decoder-state snapshots, a head-only SGD update, gradients, cross-entropy/logarithms, and an interactive perplexity/geometric-mean lab.
@@ -17,13 +18,13 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 - Clickable lifecycle diagrams in every chapter, with worked toy numbers and explicit assumptions.
 - A clickable architecture diagram with 16 detailed transformer component explanations, including positional information, residuals, normalization, feed-forward networks, cross-attention, and the distinction between attention and vocabulary softmax.
 - Twelve original PyTorch and four PySpark guided coding exercises with hints and saved answers. The expanded PyTorch topic coverage is informed by the [Devinterview checklist](https://github.com/Devinterview-io/pytorch-interview-questions); its answers are not reproduced. The NumPy bridge exercise requires NumPy.
-- Interactive tensor-storage/stride, autograd, and module-registration examples, plus a synchronous GPU-batching timeline. The Visual Atlas has 17 explainers.
+- Interactive tensor-storage/stride, autograd, and module-registration examples, plus a synchronous GPU-batching timeline. The Visual Atlas has 19 explainers.
 - Anthropic FDE preparation incorporates topics from [Rung](https://rungcode.io/loops/anthropic) and [Aced](https://www.aced.io/guides/anthropic-forward-deployed-engineer-interview): discovery, MCP, long-context reliability, coding, batching, enterprise rollout, and values.
 - OpenAI AI/ML-engineering practice is informed by the [Interview Coder guide](https://www.interviewcoder.co/blog/openai-ml-engineer-interview): role-specific coding, application design, evals, distributed state, recovery, and inference. Third-party interview claims are not official hiring rubrics; all mock exercises are original.
-- Two downloadable notebooks with executable tests and reference solutions.
+- Three downloadable notebooks with executable tests and reference solutions.
 - Search, notes, progress tracking, score history, and JSON backup export.
 
-Browser coding checks compare supported expressions; they do not execute Python. Run notebook assertions in your own compatible environment. PyTorch exercises use CPU. PySpark exercises require compatible PySpark and Java and use a local[2] session.
+Browser coding checks compare supported expressions; they do not execute Python. Run notebook assertions in your own compatible environment. NumPy exercises need only NumPy. PyTorch exercises use CPU. PySpark exercises require compatible PySpark and Java and use a local[2] session.
 
 ## Deploy with Netlify Drop
 
@@ -35,4 +36,4 @@ This community edition contains generalized synthetic practice scenarios, not a 
 
 ## Validation scope
 
-The browser UI and reference-expression matching are tested separately from Python execution. Notebook code and reference solutions are syntax-checked; runtime assertion execution requires the relevant installed frameworks and is not implied by browser checks.
+The browser UI and reference-expression matching are tested separately from Python execution. Notebook code and reference solutions are syntax-checked; runtime assertion execution requires the relevant installed frameworks and is not implied by browser checks. All eight NumPy exercises and 17 supported solution combinations passed actual assertions with NumPy 2.5.4 / Python 3.12 in an isolated validation environment. The generated NumPy notebook's solution/test pairs also passed execution. Unchanged PyTorch and Spark runtime assertions were not executed as part of this update.

@@ -58,6 +58,7 @@
 .viz-matrix td.masked{background:repeating-linear-gradient(135deg,#f6eee7,#f6eee7 4px,#ebded2 4px,#ebded2 5px);color:#946643;border-color:#d6bca2}
 .viz-matrix td.heat{background:color-mix(in srgb,#c7dfb4 calc(var(--heat)*100%),#f1f5ec);color:#29472d}
 .viz-matrix td button{background:none;border:0;color:inherit;font:inherit;width:100%;padding:0;min-height:22px}
+.viz-numpy-array th{font-size:10px;font-weight:650;color:#527044;padding:5px}
 .viz-formula{background:#edf3e6;border-left:3px solid #8dac72;padding:15px 17px;border-radius:0 5px 5px 0;font:12px/1.9 Consolas,monospace;color:#345a40;margin:15px 0;overflow-wrap:anywhere}
 .viz-note{font-size:11px!important;line-height:1.85!important;color:#75866a!important;margin:15px 0 0!important}
 .viz-note a{text-decoration:underline}

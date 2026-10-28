@@ -335,7 +335,71 @@ const VISUALS = (() => {
     return { batches, requests, elapsed: time, p50: latencies[Math.ceil(0.5 * latencies.length) - 1],
       p95: latencies[Math.ceil(0.95 * latencies.length) - 1], throughput: 1000 * requests.length / time };
   }
+  function numpySelection(scenario, mutate = false) {
+    const source = Array.from({ length: 4 }, (_, r) => Array.from({ length: 5 }, (_, c) => 5 * r + c));
+    const grid = (rows, columns) => rows.flatMap(r => columns.map(c => [r, c]));
+    const columns = [0, 1, 2, 3, 4];
+    const cases = {
+      scalar: { expression: "a[-1, -2]", shape: [], coords: [[3, 3]], shares: false },
+      row: { expression: "a[1]", shape: [5], coords: grid([1], columns), shares: true },
+      column: { expression: "a[:, 2]", shape: [4], coords: grid([0, 1, 2, 3], [2]), shares: true },
+      slice: { expression: "a[1:4:2, 1:5:2]", shape: [2, 2], coords: grid([1, 3], [1, 3]), shares: true },
+      step: { expression: "a[::2, :]", shape: [2, 5], coords: grid([0, 2], columns), shares: true },
+      reverse: { expression: "a[::-1, 0]", shape: [4], coords: grid([3, 2, 1, 0], [0]), shares: true },
+      boolean: { expression: "a[(a[:,0] >= 5) & (a[:,2] < 17)]", shape: [2, 5], coords: grid([1, 2], columns), shares: false },
+      paired: { expression: "a[[0,3], [1,4]]", shape: [2], coords: [[0, 1], [3, 4]], shares: false },
+      outer: { expression: "a[np.ix_([0,3], [1,4])]", shape: [2, 2], coords: grid([0, 3], [1, 4]), shares: false },
+      empty: { expression: "a[0:0, :]", shape: [0, 5], coords: [], shares: null },
+      incompatible: { expression: "a[[0,1,2], [1,3]]", shape: null, coords: [], shares: null, error: "IndexError: index arrays shaped (3,) and (2,) cannot broadcast." }
+    };
+    const choice = cases[scenario];
+    if (!choice || typeof mutate !== "boolean") throw new RangeError("Choose a known NumPy indexing scenario and a boolean mutation flag.");
+    const values = choice.coords.map(([r, c]) => source[r][c]);
+    if (mutate && choice.shape && choice.shape.length && values.length) {
+      values[0] = 999;
+      if (choice.shares) source[choice.coords[0][0]][choice.coords[0][1]] = 999;
+    }
+    const result = choice.shape === null ? null : choice.shape.length === 0 ? values[0] :
+      choice.shape.length === 1 ? values : Array.from({ length: choice.shape[0] }, (_, r) => values.slice(r * choice.shape[1], (r + 1) * choice.shape[1]));
+    return { ...choice, source, result };
+  }
+  function numpyBroadcast(mode) {
+    if (!["features", "rows", "missing-axis"].includes(mode)) throw new RangeError("Choose a known broadcasting mode.");
+    const input = [[2, 4, 8], [6, 10, 12]];
+    const features = mode === "features";
+    const means = features ? [input[0].map((_, c) => (input[0][c] + input[1][c]) / 2)] :
+      input.map(row => [sum(row) / row.length]);
+    return { input, means, shape: features ? [1, 3] : [2, 1],
+      error: mode === "missing-axis" ? "ValueError: shapes (2,3) and (2,) cannot broadcast. Keep the singleton feature axis for row centering." : null,
+      output: mode === "missing-axis" ? null : input.map((row, r) => row.map((value, c) => value - (features ? means[0][c] : means[r][0]))) };
+  }
   const specs = {
+    "numpy-indexing": {
+      title: "NumPy indexing: highlight exactly which cells you selected",
+      subtitle: "Original arange(20).reshape(4,5) fixture. Compare scalar, slice, boolean, paired, and outer selections, then test which ones change the source.",
+      initial: () => ({ scenario: "slice", mutate: false }),
+      controls: id => `<div class="viz-controls">${control(`${id}-scenario`, "Indexing operation", select(`${id}-scenario`, "scenario", [["scalar", "Negative indices / scalar"], ["row", "One row / 1-D view"], ["column", "One column / 1-D view"], ["slice", "Two-axis stepped slice"], ["step", "Every other row"], ["reverse", "Reverse rows, first column"], ["boolean", "Combined boolean row filter"], ["paired", "Paired integer coordinates"], ["outer", "Outer rectangle with np.ix_"], ["empty", "Empty slice"], ["incompatible", "Incompatible index shapes"]], "slice"))}<label class="viz-check"><input type="checkbox" data-control="mutate"> Write 999 into the first selected array element</label></div>`,
+      paint: state => {
+        const s = numpySelection(state.scenario, state.mutate);
+        const selected = new Set(s.coords.map(([r, c]) => `${r},${c}`));
+        const shape = s.shape === null ? "No result" : `(${s.shape.join(",")}${s.shape.length === 1 ? "," : ""})`;
+        const rows = s.shape && s.shape.length === 2 ? s.result : [s.shape && s.shape.length === 1 ? s.result : [s.result]];
+        const output = s.error ? `<div class="viz-explanation" role="status">${s.error} Use equal/broadcastable coordinate shapes for pairing, or np.ix_ for all combinations.</div>` :
+          `<figure class="viz-matrix"><figcaption>Result: actual NumPy shape ${shape}</figcaption>${s.coords.length ? `<table aria-label="Selected NumPy values"><tbody>${rows.map(row => `<tr>${row.map(value => `<td>${value}</td>`).join("")}</tr>`).join("")}</tbody></table>` : '<p class="viz-note">[]: zero rows, five columns. No element can be mutated.</p>'}</figure>`;
+        return `${formula(`a = np.arange(20, dtype=np.int64).reshape(4,5)<br>selected = ${s.expression}`)}<div class="viz-equation-row"><figure class="viz-matrix viz-numpy-array"><figcaption>Source a / highlighted cells in selection</figcaption><table aria-label="Four by five source array with row and column indices"><thead><tr><th>r / c</th>${[0, 1, 2, 3, 4].map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>${s.source.map((row, r) => `<tr><th>${r}</th>${row.map((value, c) => `<td${selected.has(`${r},${c}`) ? ' class="cell-hit"' : ""}>${value}</td>`).join("")}</tr>`).join("")}</tbody></table></figure><span>&rarr;</span>${output}</div><div class="viz-metrics">${metric("Result shape", shape, "numpy-shape")}${metric("Shared elements?", s.shares === null ? s.error ? "N/A: invalid selection" : "N/A: no elements" : s.shares ? "Yes: basic slice" : s.shape.length ? "No: advanced copy" : "No: scalar", "numpy-shares")}</div>${note("Basic slicing returns views; advanced integer/boolean indexing returns copies when read. Assignment directly into a[mask] is different and writes to a. A scalar is zero-dimensional, not a length-one array. Empty slices contain no overlapping elements, so shares_memory cannot establish ownership from overlap. This browser models fixed cases; the notebook runs actual NumPy.")}`;
+      }
+    },
+    "numpy-broadcast": {
+      title: "Broadcasting: follow the axis you reduce",
+      subtitle: "Rows are samples, columns are features. Center columns or rows and inspect the singleton dimensions needed to broadcast back.",
+      initial: () => ({ mode: "features" }),
+      controls: id => control(`${id}-mode`, "Centering operation", select(`${id}-mode`, "mode", [["features", "Feature means: axis=0, keepdims=True"], ["rows", "Row means: axis=1, keepdims=True"], ["missing-axis", "Incorrect row means without keepdims"]], "features")),
+      paint: state => {
+        const s = numpyBroadcast(state.mode);
+        const means = s.error ? formula(`Flat row means, actual shape (2,):<br>[${s.means.map(row => row[0].toFixed(3)).join(", ")}]`) : matrix("Mean values (kept dimensions)", s.means);
+        return `<div class="viz-equation-row">${matrix("X [samples,features]", s.input)}<span>&minus;</span>${means}<span>=</span>${s.error ? '<div class="viz-explanation" role="status">No valid result</div>' : matrix("Centered X", s.output)}</div>${formula(`mean = X.mean(axis=${state.mode === "features" ? 0 : 1}, keepdims=${state.mode === "missing-axis" ? "False" : "True"})<br>${s.error || `Shapes: (2,3) - (${s.shape.join(",")}) -> (2,3)`}`)}${note("Match dimensions from the right: each pair must be equal or one must be 1. In the incorrect case, the row-mean values are stored as a flat (2,) vector, not the (2,1) layout needed for subtraction. Broadcasting avoids explicitly tiling input statistics, but the operation's output still occupies memory. Fit feature statistics on training data only.")}`;
+      }
+    },
     "torch-storage": {
       title: "Tensor storage: a new shape is not always a new allocation",
       subtitle: "Predict which source cell changes when writing through a transpose, an independent contiguous copy, or a detached view. JavaScript simulation, not Python execution.",
@@ -663,6 +727,14 @@ const VISUALS = (() => {
   };
 
   const flows = {
+    numpy: ["A NumPy computation: contracts before clever indexing", [
+      ["Inspect", "Name every axis, dtype, device (CPU here), shape, stride, and ownership expectation before operating."],
+      ["Select", "Choose slicing, boolean masks, paired coordinates, or an outer index grid deliberately; predict the result shape."],
+      ["Compute", "Align broadcasting axes, use compiled ufuncs/reductions, and account for temporary-array memory."],
+      ["Solve", "Use an appropriate linear-algebra routine, state conditioning/rank assumptions, and verify residuals."],
+      ["Validate", "Check small exact fixtures, nonfinite values, empty shapes, copy/view behavior, and held-out preprocessing contracts."],
+      ["Measure", "Benchmark representative inputs with warm-up and dtype/layout parity. Vectorized syntax alone is not a performance result."]
+    ]],
     "openai-aie": ["An original AI/ML engineering rehearsal", [
       ["Match role", "Confirm application versus ML-systems expectations, assessment format, allowed libraries, and tool permissions."],
       ["Implement", "Build one numerical or integration reference with explicit shapes, valid inputs, errors, and deterministic fixtures."],
@@ -813,7 +885,7 @@ const VISUALS = (() => {
     inference: ["kv", "paged", "flash"], cuda: ["gpu"], rag: ["rag", "rag-scorecard"],
     agents: ["agent"], "agent-eval": ["agent-scorecard", "agent", "rag"], "system-design": ["rag", "agent"]
   };
-  const atlasTypes = ["architecture", "attention", "heads", "training-state", "perplexity", "torch-storage", "torch-autograd", "torch-module", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard", "fde-batching"];
+  const atlasTypes = ["architecture", "attention", "heads", "training-state", "perplexity", "numpy-indexing", "numpy-broadcast", "torch-storage", "torch-autograd", "torch-module", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard", "fde-batching"];
 
   function widgetMarkup(type) {
     const spec = specs[type];
@@ -829,18 +901,22 @@ const VISUALS = (() => {
     return `<section id="visual-explainer" class="lesson-visuals" aria-label="Visual concept walkthroughs"><div class="section-heading"><div><span class="eyebrow">SEE IT BEFORE YOU DERIVE IT</span><h2>A visual mental model.</h2></div><a href="#visuals">Open visual atlas &rarr;</a></div>${lessonId === "transformers" ? widgets + flow : flow + widgets}</section>`;
   }
   function sectionMarkup(lessonId, section) {
-    if (["training", "pytorch", "anthropic-fde", "openai-aie"].includes(lessonId) && section.visual) return widgetMarkup(section.visual);
+    if (["training", "numpy", "pytorch", "anthropic-fde", "openai-aie"].includes(lessonId) && section.visual) return widgetMarkup(section.visual);
     if (lessonId !== "transformers") return "";
     if (section.diagramStep === 3) return widgetMarkup("attention");
     if (section.diagramStep === 6) return widgetMarkup("heads");
     return "";
   }
   function atlasMarkup() {
-    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", "training-state": "Training states", perplexity: "Loss + perplexity", "torch-storage": "Tensor storage", "torch-autograd": "Autograd", "torch-module": "Module registration", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability", "fde-batching": "FDE batching" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
+    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", "training-state": "Training states", perplexity: "Loss + perplexity", "numpy-indexing": "NumPy indexing", "numpy-broadcast": "NumPy broadcasting", "torch-storage": "Tensor storage", "torch-autograd": "Autograd", "torch-module": "Module registration", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability", "fde-batching": "FDE batching" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
   }
   function updateWidget(root, state) {
     const type = root.dataset.visual;
     const spec = specs[type];
+    if (type === "numpy-indexing") {
+      const selected = numpySelection(state.scenario);
+      root.querySelector('[data-control="mutate"]').disabled = !selected.shape || !selected.shape.length || !selected.coords.length;
+    }
     if (type === "paged") {
       state.address = Math.min(state.address, state.a - 1);
       const address = root.querySelector('[data-control="address"]');
@@ -935,5 +1011,5 @@ const VISUALS = (() => {
       destination.focus({ preventScroll: true });
     }));
   }
-  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics, tokenObjective, perplexityMetrics, trainingForward, trainingSnapshot, torchStorageState, torchGradState, batchingSchedule } };
+  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics, tokenObjective, perplexityMetrics, trainingForward, trainingSnapshot, torchStorageState, torchGradState, batchingSchedule, numpySelection, numpyBroadcast } };
 })();

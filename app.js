@@ -16,10 +16,15 @@
   let state = { completed: [], quizzes: {}, notes: {}, studio: "", exams: [], coding: {} };
   let codingIndex = 0;
   let codingTrack = "pytorch";
-  const codingExercises = () => codingTrack === "spark" ? SPARK_LAB : CODING_LAB;
+  const codingTracks = {
+    pytorch: { exercises: CODING_LAB, route: "coding", runtime: "PyTorch", label: "PyTorch coding", notebook: "pytorch-exercises.ipynb", heading: "From an equation to working code.", setup: "Install compatible PyTorch and NumPy builds if needed. The exercises use CPU tensors and need no checkpoint download or CUDA device." },
+    numpy: { exercises: NUMPY_LAB, route: "numpy-coding", runtime: "NumPy", label: "NumPy coding", notebook: "numpy-exercises.ipynb", heading: "Predict the shape. Verify the numbers.", setup: "Install a compatible NumPy build in the notebook kernel environment if needed. These exercises need only NumPy, CPU arrays, and the supplied synthetic inputs." },
+    spark: { exercises: SPARK_LAB, route: "spark-coding", runtime: "PySpark", label: "Spark add-on", notebook: "spark-exercises.ipynb", heading: "Think in data. Write the transformation.", setup: "Install a compatible PySpark distribution and Java runtime; configure JAVA_HOME as required by that Spark release. The notebook uses a local[2] session and classic Spark APIs, not Spark Connect." }
+  };
+  const codingExercises = () => codingTracks[codingTrack].exercises;
   function selectCodingExercise(index) {
     codingIndex = index;
-    history.replaceState(null, "", `#${codingTrack === "spark" ? "spark-coding" : "coding"}/${codingExercises()[codingIndex].id}`);
+    history.replaceState(null, "", `#${codingTracks[codingTrack].route}/${codingExercises()[codingIndex].id}`);
     coding();
   }
   let activeExam = null;
@@ -42,7 +47,7 @@
     if (!value.completed.every(id => typeof id === "string" && lessonById(id)) || new Set(value.completed).size !== value.completed.length) return false;
     if (!Object.entries(value.notes).every(([id, note]) => lessonById(id) && typeof note === "string")) return false;
     if (value.coding !== undefined && (!isPlain(value.coding) || !Object.entries(value.coding).every(([id, answers]) => {
-      const exercise = [...CODING_LAB, ...SPARK_LAB].find(item => item.id === id);
+      const exercise = Object.values(codingTracks).flatMap(track => track.exercises).find(item => item.id === id);
       return exercise && Array.isArray(answers) && answers.length === exercise.slots.length && answers.every(answer => typeof answer === "string");
     }))) return false;
     if (!Object.entries(value.quizzes).every(([id, result]) => {
@@ -169,12 +174,13 @@
   function coding() {
     const exercises = codingExercises();
     const exercise = exercises[codingIndex];
-    const spark = codingTrack === "spark";
-    const runtime = spark ? "PySpark" : "PyTorch";
-    const notebook = spark ? "spark-exercises.ipynb" : "pytorch-exercises.ipynb";
+    const track = codingTracks[codingTrack];
+    const { runtime, notebook } = track;
+    const tabs = Object.entries(codingTracks).map(([id, item]) => `<a class="filter-chip ${id === codingTrack ? "active" : ""}" href="#${item.route}"${id === codingTrack ? ' aria-current="page"' : ""}>${item.label}</a>`).join("");
     const answers = state.coding[exercise.id] || exercise.slots.map(() => "");
-    main.innerHTML = `<div class="page-heading"><div><span class="eyebrow">${runtime.toUpperCase()} / LEARN BY WRITING</span><h1>${spark ? "Think in data. Write the transformation." : "From an equation to working code."}</h1><p class="intro">${exercises.length} exercises. Fill the missing expressions, inspect the assembled code, and explain the result before opening the solution.</p></div></div><div class="filter-bar"><a class="filter-chip ${spark ? "" : "active"}" href="#coding">PyTorch coding</a><a class="filter-chip ${spark ? "active" : ""}" href="#spark-coding">Spark add-on</a></div><div class="coding-notice"><strong>Two environments. An honest boundary.</strong><p>Browser checks compare supported reference expressions; they do not execute Python or prove semantic equivalence. The notebook runs real ${runtime} assertions in your own compatible environment. No code is sent to a service.</p><a class="button secondary small-button" href="${notebook}" download>Download the runnable notebook &darr;</a><a class="button text small-button" href="${notebook}" target="_blank" rel="noopener">Open notebook file ↗</a></div><div class="coding-selector"><label for="coding-exercise">CHOOSE AN EXERCISE</label><select id="coding-exercise">${exercises.map((item, index) => `<option value="${index}" ${index === codingIndex ? "selected" : ""}>${index + 1}. ${escape(item.title)}</option>`).join("")}</select><span class="saved-label">${codingIndex + 1} of ${exercises.length}</span></div><div class="coding-layout"><section class="panel"><span class="eyebrow">${escape(exercise.level)}</span><h2>${escape(exercise.title)}</h2><p>${escape(exercise.objective)}</p><form id="coding-form">${exercise.slots.map((slot, index) => `<div class="coding-field"><label for="coding-slot-${index}"><span>${index + 1}</span> ${escape(slot.label)}</label><textarea id="coding-slot-${index}" data-coding-slot="${index}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="${escape(slot.placeholder)}" aria-describedby="coding-feedback-${index}">${escape(answers[index])}</textarea><p id="coding-feedback-${index}" class="coding-feedback" hidden></p><details><summary>Need a hint?</summary><p>${escape(slot.hint)}</p></details></div>`).join("")}<div id="coding-result" role="status" aria-live="polite"></div><div class="quiz-controls"><button class="button" type="submit">Check expressions &rarr;</button><button class="button secondary" type="button" id="reset-exercise">Clear this exercise</button></div><div id="note-status" class="save-status" aria-live="polite">Expressions save on this browser</div></form></section><section class="panel coding-preview"><span class="eyebrow">LIVE PYTHON PREVIEW / NOT EXECUTED</span><pre class="code-block"><code id="assembled-code">${escape(exerciseCode(exercise, answers))}</code></pre><h3>Expected behavior</h3><p>${escape(exercise.expected)}</p><details><summary>Inspect the real notebook tests</summary><pre class="code-block"><code>${escape(exercise.tests)}</code></pre></details><details><summary>Reveal the reference solution</summary><pre class="code-block"><code>${escape(exerciseCode(exercise, exercise.slots.map(slot => slot.answers[0])))}</code></pre><p>${escape(exercise.explanation)}</p></details><a class="button text" href="#lesson/${exercise.lesson}">Review the related chapter &rarr;</a></section></div><div class="lesson-actions"><button class="button secondary" id="previous-exercise" ${codingIndex === 0 ? "disabled" : ""}>&larr; Previous exercise</button><button class="button" id="next-exercise" ${codingIndex === exercises.length - 1 ? "disabled" : ""}>Next exercise &rarr;</button></div><details class="section-spacer"><summary>How to run the notebook and use the checks</summary><p>Open the notebook in VS Code with a compatible Jupyter/Python kernel. ${spark ? "Install a compatible PySpark distribution and Java runtime; configure JAVA_HOME as required by that Spark release. The notebook uses a local[2] session and classic Spark APIs, not Spark Connect." : "Install a compatible PyTorch build if needed. The exercises use CPU tensors and need no checkpoint download or CUDA device."} Fill each ellipsis, then run its separate test cell. Reference solutions appear at the end as text, not automatically executed.</p><p>The assertions cover toy inputs and selected failure cases, not every production input. A different valid expression may require notebook execution to verify. No private data is needed.</p></details>`;
-    if (!spark) main.querySelector(".coding-notice").insertAdjacentHTML("beforeend", '<p>Original exercises covering topics from the <a href="https://github.com/Devinterview-io/pytorch-interview-questions" target="_blank" rel="noopener noreferrer">Devinterview PyTorch checklist</a>; its answers are not reproduced. The NumPy bridge exercise additionally needs NumPy in your notebook environment. Explore <a href="#lesson/pytorch">the interactive chapter examples</a> before coding.</p>');
+    main.innerHTML = `<div class="page-heading"><div><span class="eyebrow">${runtime.toUpperCase()} / LEARN BY WRITING</span><h1>${track.heading}</h1><p class="intro">${exercises.length} exercises. Fill the missing expressions, inspect the assembled code, and explain the result before opening the solution.</p></div></div><div class="filter-bar">${tabs}</div><div class="coding-notice"><strong>Two environments. An honest boundary.</strong><p>Browser checks compare supported reference expressions; they do not execute Python or prove semantic equivalence. The notebook runs real ${runtime} assertions in your own compatible environment. No code is sent to a service.</p><a class="button secondary small-button" href="${notebook}" download>Download the runnable notebook &darr;</a><a class="button text small-button" href="${notebook}" target="_blank" rel="noopener">Open notebook file ↗</a></div><div class="coding-selector"><label for="coding-exercise">CHOOSE AN EXERCISE</label><select id="coding-exercise">${exercises.map((item, index) => `<option value="${index}" ${index === codingIndex ? "selected" : ""}>${index + 1}. ${escape(item.title)}</option>`).join("")}</select><span class="saved-label">${codingIndex + 1} of ${exercises.length}</span></div><div class="coding-layout"><section class="panel"><span class="eyebrow">${escape(exercise.level)}</span><h2>${escape(exercise.title)}</h2><p>${escape(exercise.objective)}</p><form id="coding-form">${exercise.slots.map((slot, index) => `<div class="coding-field"><label for="coding-slot-${index}"><span>${index + 1}</span> ${escape(slot.label)}</label><textarea id="coding-slot-${index}" data-coding-slot="${index}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="${escape(slot.placeholder)}" aria-describedby="coding-feedback-${index}">${escape(answers[index])}</textarea><p id="coding-feedback-${index}" class="coding-feedback" hidden></p><details><summary>Need a hint?</summary><p>${escape(slot.hint)}</p></details></div>`).join("")}<div id="coding-result" role="status" aria-live="polite"></div><div class="quiz-controls"><button class="button" type="submit">Check expressions &rarr;</button><button class="button secondary" type="button" id="reset-exercise">Clear this exercise</button></div><div id="note-status" class="save-status" aria-live="polite">Expressions save on this browser</div></form></section><section class="panel coding-preview"><span class="eyebrow">LIVE PYTHON PREVIEW / NOT EXECUTED</span><pre class="code-block"><code id="assembled-code">${escape(exerciseCode(exercise, answers))}</code></pre><h3>Expected behavior</h3><p>${escape(exercise.expected)}</p><details><summary>Inspect the real notebook tests</summary><pre class="code-block"><code>${escape(exercise.tests)}</code></pre></details><details><summary>Reveal the reference solution</summary><pre class="code-block"><code>${escape(exerciseCode(exercise, exercise.slots.map(slot => slot.answers[0])))}</code></pre><p>${escape(exercise.explanation)}</p></details><a class="button text" href="#lesson/${exercise.lesson}">Review the related chapter &rarr;</a></section></div><div class="lesson-actions"><button class="button secondary" id="previous-exercise" ${codingIndex === 0 ? "disabled" : ""}>&larr; Previous exercise</button><button class="button" id="next-exercise" ${codingIndex === exercises.length - 1 ? "disabled" : ""}>Next exercise &rarr;</button></div><details class="section-spacer"><summary>How to run the notebook and use the checks</summary><p>Open the notebook in VS Code with a compatible Jupyter/Python kernel. ${track.setup} Fill each ellipsis, then run its separate test cell. Reference solutions appear at the end as text, not automatically executed.</p><p>The assertions cover toy inputs and selected failure cases, not every production input. A different valid expression may require notebook execution to verify. No private data is needed.</p></details>`;
+    if (codingTrack === "pytorch") main.querySelector(".coding-notice").insertAdjacentHTML("beforeend", '<p>Original exercises covering topics from the <a href="https://github.com/Devinterview-io/pytorch-interview-questions" target="_blank" rel="noopener noreferrer">Devinterview PyTorch checklist</a>; its answers are not reproduced. The NumPy bridge exercise additionally needs NumPy in your notebook environment. Explore <a href="#lesson/pytorch">the interactive chapter examples</a> before coding.</p>');
+    if (codingTrack === "numpy") main.querySelector(".coding-notice").insertAdjacentHTML("beforeend", '<p>Original practice informed by the full <a href="https://github.com/rohanmistry231/Numpy-Interview-Preparation" target="_blank" rel="noopener noreferrer">NumPy interview-preparation repository</a> (MIT). Its source examples are not reproduced. Explore <a href="#lesson/numpy">the NumPy chapter and interactive array diagrams</a> before coding.</p>');
   }
   function checkCoding() {
     const exercise = codingExercises()[codingIndex];
@@ -270,29 +276,29 @@
     const hash = location.hash.slice(1) || "home";
     const [page, id] = hash.split("/");
     const lesson = page === "lesson" ? lessonById(id) : null;
-    let validPage = ["home", "curriculum", "visuals", "lab", "coding", "spark-coding", "practice", "exam"].includes(page) || lesson;
-    const nextTrack = page === "spark-coding" ? "spark" : "pytorch";
-    if ((page === "coding" || page === "spark-coding") && nextTrack !== codingTrack) {
-      codingTrack = nextTrack;
+    let validPage = ["home", "curriculum", "visuals", "lab", "coding", "numpy-coding", "spark-coding", "practice", "exam"].includes(page) || lesson;
+    const codingRoute = Object.entries(codingTracks).find(([, track]) => track.route === page);
+    if (codingRoute && codingRoute[0] !== codingTrack) {
+      codingTrack = codingRoute[0];
       codingIndex = 0;
     }
-    if ((page === "coding" || page === "spark-coding") && id) {
+    if (codingRoute && id) {
       const requestedIndex = codingExercises().findIndex(exercise => exercise.id === id);
       if (requestedIndex < 0) validPage = false;
       else codingIndex = requestedIndex;
     }
     document.querySelectorAll("[data-nav]").forEach(link => {
-      const active = link.dataset.nav === (lesson ? "curriculum" : page === "spark-coding" ? "coding" : page);
+      const active = link.dataset.nav === (lesson ? "curriculum" : codingRoute ? "coding" : page);
       link.classList.toggle("active", active);
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-    const labels = { home: "Overview", curriculum: "Learning path", visuals: "Visual atlas", lab: "Interactive lab", coding: "PyTorch coding", "spark-coding": "Spark coding", practice: "Interview studio", exam: "Final assessment" };
+    const labels = { home: "Overview", curriculum: "Learning path", visuals: "Visual atlas", lab: "Interactive lab", coding: "PyTorch coding", "numpy-coding": "NumPy coding", "spark-coding": "Spark coding", practice: "Interview studio", exam: "Final assessment" };
     document.getElementById("breadcrumb").textContent = lesson ? `Chapter ${lesson.icon}` : labels[page] || "Not found";
     document.title = `${lesson ? lesson.title : labels[page] || "Not found"} · Field Guide`;
     if (!validPage) main.innerHTML = '<div class="empty-state"><h1>This page is not in the guide.</h1><a class="button" href="#home">Back to overview</a></div>';
     else if (lesson) lessonPage(lesson);
-    else ({ home, curriculum, visuals, lab, coding, "spark-coding": coding, practice, exam: examPage })[page]();
+    else ({ home, curriculum, visuals, lab, coding, "numpy-coding": coding, "spark-coding": coding, practice, exam: examPage })[page]();
     if (page === "home" || page === "lab") main.querySelector(".page-heading").insertAdjacentHTML("afterend", '<div class="viz-explanation"><strong>Prefer to see it first?</strong> <a href="#visuals">Open the Visual Atlas</a> for architecture, Q/K/V arithmetic, attention memory, RAG, and agent decision loops.</div>');
     updateProgress();
     if (focus) {
