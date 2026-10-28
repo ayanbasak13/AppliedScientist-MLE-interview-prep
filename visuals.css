@@ -40,6 +40,10 @@
 .viz-training-backward{border-left:3px dashed #b58048;padding:12px;background:#fbf1e4;margin:12px 0;font-size:11px;line-height:1.8}
 .viz-training-backward p{font-size:10px;margin-bottom:0}
 .viz-training-loop{border-left:3px solid #b58048;border-bottom:3px solid #b58048;border-radius:0 0 0 8px;padding:10px;font-size:11px;line-height:1.8;color:#805e35}
+.viz-batch-timeline{display:grid;gap:12px;margin:20px 0}
+.viz-batch-timeline>div{display:grid;grid-template-columns:55px minmax(0,1fr) 75px;gap:8px;align-items:center;font-size:10px}
+.viz-batch-track{background:#edf2e7;border:1px solid #d6e0cb;height:26px;min-width:0}
+.viz-batch-track i{display:block;height:100%;background:#286d54;color:#fff;text-align:center;font:10px/24px Consolas,monospace;overflow:hidden}
 @media(max-width:1100px){.viz-training-layout{grid-template-columns:minmax(0,1fr)}}
 .viz-step-name{font:20px/1.4 var(--serif);color:#345c45;margin:18px 0}
 .viz-equation-row{display:flex;align-items:center;gap:15px;max-width:100%;overflow-x:auto;padding:10px 3px 15px;overscroll-behavior-x:contain}

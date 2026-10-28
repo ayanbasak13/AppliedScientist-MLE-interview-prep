@@ -1,6 +1,6 @@
 # Applied Scientist / MLE Interview Prep
 
-An interactive, browser-based learning guide covering transformers, PyTorch, SFT/DPO/PPO, FlashAttention, CUDA, retrieval, end-to-end RAG and evaluation, agents and evaluation, system design, and a Spark add-on.
+An interactive, browser-based learning guide covering transformers, PyTorch, SFT/DPO/PPO, FlashAttention, CUDA, retrieval, end-to-end RAG and evaluation, agents and evaluation, system design, Anthropic FDE and OpenAI AI/ML-engineering preparation, and a Spark add-on.
 
 ## Use locally
 
@@ -8,7 +8,7 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 
 ## Learn and practice
 
-- 16 chapters, 48 concept questions, and a 32-question final (26/32 passes).
+- 18 chapters, 54 concept questions, and a 36-question final (29/36 passes).
 - End-to-end GPT-style training: data/tokenization, pretraining loss and optimizer updates, mixed precision/distribution, checkpoint recovery, SFT/preference branches, evaluation, and release; not an undisclosed proprietary recipe.
 - Interactive attention, KV-cache, NDCG, and DPO calculators.
 - Beginner-friendly chapter 2: eight numerical decoder-state snapshots, a head-only SGD update, gradients, cross-entropy/logarithms, and an interactive perplexity/geometric-mean lab.
@@ -16,7 +16,10 @@ Run `python -m http.server 8765 --bind 127.0.0.1` in this folder, then open `htt
 - Detailed RAG/agent evaluation with worked metric denominators, ranking and citation grading, risk/coverage, repeated-run reliability, fault injection, calibrated judges, uncertainty, cost/latency, monitoring, and interactive scorecards.
 - Clickable lifecycle diagrams in every chapter, with worked toy numbers and explicit assumptions.
 - A clickable architecture diagram with 16 detailed transformer component explanations, including positional information, residuals, normalization, feed-forward networks, cross-attention, and the distinction between attention and vocabulary softmax.
-- Six PyTorch and four PySpark guided coding exercises with hints and saved answers.
+- Twelve original PyTorch and four PySpark guided coding exercises with hints and saved answers. The expanded PyTorch topic coverage is informed by the [Devinterview checklist](https://github.com/Devinterview-io/pytorch-interview-questions); its answers are not reproduced. The NumPy bridge exercise requires NumPy.
+- Interactive tensor-storage/stride, autograd, and module-registration examples, plus a synchronous GPU-batching timeline. The Visual Atlas has 17 explainers.
+- Anthropic FDE preparation incorporates topics from [Rung](https://rungcode.io/loops/anthropic) and [Aced](https://www.aced.io/guides/anthropic-forward-deployed-engineer-interview): discovery, MCP, long-context reliability, coding, batching, enterprise rollout, and values.
+- OpenAI AI/ML-engineering practice is informed by the [Interview Coder guide](https://www.interviewcoder.co/blog/openai-ml-engineer-interview): role-specific coding, application design, evals, distributed state, recovery, and inference. Third-party interview claims are not official hiring rubrics; all mock exercises are original.
 - Two downloadable notebooks with executable tests and reference solutions.
 - Search, notes, progress tracking, score history, and JSON backup export.
 

@@ -17,6 +17,11 @@
   let codingIndex = 0;
   let codingTrack = "pytorch";
   const codingExercises = () => codingTrack === "spark" ? SPARK_LAB : CODING_LAB;
+  function selectCodingExercise(index) {
+    codingIndex = index;
+    history.replaceState(null, "", `#${codingTrack === "spark" ? "spark-coding" : "coding"}/${codingExercises()[codingIndex].id}`);
+    coding();
+  }
   let activeExam = null;
   let examAnswers = {};
   let examResult = null;
@@ -107,7 +112,7 @@
     });
     main.innerHTML = `<div class="page-heading"><div><span class="eyebrow">A CONNECTED CURRICULUM</span><h1>From first principles to production.</h1><p class="intro">${chapterCount} chapters · ${questionCount} concept questions · a ${examCount}-question final.<br>Read in order, or go straight to the gap you want to close.</p></div></div><div class="filter-bar" aria-label="Filter by stage">${["all", ...GUIDE.stages.map((_, i) => i)].map((stage, i) => `<button class="filter-chip ${String(stage) === filter ? "active" : ""}" data-filter="${stage}" aria-pressed="${String(stage) === filter}">${i === 0 ? "All chapters" : escape(GUIDE.stages[stage])}</button>`).join("")}</div>${searchText ? `<p class="muted search-heading" role="status">${matches.length} chapter${matches.length === 1 ? "" : "s"} matching “${escape(query)}”</p>` : ""}${matches.length ? GUIDE.stages.map((stage, index) => {
       const group = matches.filter(lesson => lesson.stage === index);
-      return group.length ? `<section><div class="stage-header"><span class="stage-index">0${index + 1}</span><div><h2>${stage}</h2><small>${["Build the mental model", "Adapt the behavior", "Retrieve, serve, and measure", "Act, verify, and defend", "Distributed data fundamentals"][index]}</small></div></div><div class="chapter-grid">${group.map(card).join("")}</div></section>` : "";
+      return group.length ? `<section><div class="stage-header"><span class="stage-index">0${index + 1}</span><div><h2>${stage}</h2><small>${["Build the mental model", "Adapt the behavior", "Retrieve, serve, and measure", "Act, verify, and defend", "Role-specific discovery, design, and practice", "Distributed data fundamentals"][index]}</small></div></div><div class="chapter-grid">${group.map(card).join("")}</div></section>` : "";
     }).join("") : '<div class="empty-state"><h2>No matching chapters.</h2><p class="muted">Try a broader term like attention, retrieval, or evaluation, or select All chapters.</p></div>'}`;
   }
   function quizMarkup(questions, prefix, saved, exam = false) {
@@ -156,7 +161,7 @@
   function lab() {
     main.innerHTML = `<div class="page-heading"><div><span class="eyebrow">MAKE THE EQUATIONS TANGIBLE</span><h1>A small lab. A better intuition.</h1><p class="intro">Change the inputs, predict the result, then explain why it changed.<br>These are educational calculations, not production capacity forecasts.</p></div></div><div class="lab-grid"><section class="panel"><span class="eyebrow">01 / ATTENTION SANDBOX</span><h2>Where does attention go?</h2><p>One query, three key scores [2, 1, 0]. Watch softmax redistribute attention as you change temperature or mask the last key.</p><div class="field"><label for="temperature">Temperature: <output id="temp-value">1.0</output></label><input id="temperature" type="range" min="0.1" max="3" step="0.1" value="1"></div><label class="check-line"><input id="mask-key" type="checkbox">Mask the third key before softmax</label><div id="attention-bars" class="attention-bars" aria-live="polite"></div><div class="lab-output"><strong id="attention-sum">100%</strong><p>Probability mass over unmasked keys. This isolates softmax; real attention also includes learned Q/K projections and head-dimension scaling.</p></div></section><section class="panel"><span class="eyebrow">02 / KV MEMORY ESTIMATOR</span><h2>What does context cost?</h2><p>Ideal cache size = 2 × batch × tokens × layers × KV heads × head width × bytes. Query heads do not replace KV heads in this formula.</p><div class="form-row"><div class="field"><label for="kv-batch">Concurrent sequences (batch)</label><input id="kv-batch" type="number" min="1" max="1024" value="1" required></div><div class="field"><label for="kv-tokens">Tokens per sequence</label><input id="kv-tokens" type="number" min="1" max="1000000" value="4096" required></div></div><div class="form-row"><div class="field"><label for="kv-layers">Transformer layers</label><input id="kv-layers" type="number" min="1" max="1024" value="32" required></div><div class="field"><label for="kv-heads">KV heads</label><input id="kv-heads" type="number" min="1" max="1024" value="8" required></div></div><div class="form-row"><div class="field"><label for="kv-width">Head dimension</label><input id="kv-width" type="number" min="1" max="4096" value="128" required></div><div class="field"><label for="kv-bytes">Cache precision</label><select id="kv-bytes"><option value="2">BF16 / FP16 · 2 bytes</option><option value="1">INT8 / FP8 · 1 byte</option><option value="4">FP32 · 4 bytes</option></select></div></div><div id="kv-output" class="lab-output" aria-live="polite"></div></section><section class="panel"><span class="eyebrow">03 / RANKING METRICS</span><h2>Order changes the outcome.</h2><p>Enter graded relevance labels (0–3) in retrieved order. This demo treats those documents as the complete judged pool, so it evaluates ordering only—not retrieval recall.</p><div class="field"><label for="ranking-labels">Comma-separated relevance labels (max 30)</label><input id="ranking-labels" value="0, 2, 1" autocomplete="off"></div><div id="ranking-output" class="lab-output" aria-live="polite"></div><p class="section-spacer">Gain = 2<sup>rel</sup> − 1. Discount = log<sub>2</sub>(rank + 1). With no relevant documents, NDCG is undefined here rather than silently treated as a perfect score.</p></section><section class="panel"><span class="eyebrow">04 / DPO LOSS EXPLORER</span><h2>Feel the preference margin.</h2><p>m is the chosen minus rejected log-probability improvement relative to the reference policy. Loss = −log sigmoid(βm).</p><div class="field"><label for="dpo-margin">Relative margin: <output id="margin-value">0.0</output></label><input id="dpo-margin" type="range" min="-10" max="10" step=".1" value="0"></div><div class="field"><label for="dpo-beta">Beta: <output id="beta-value">0.1</output></label><input id="dpo-beta" type="range" min=".1" max="2" step=".1" value=".1"></div><div id="dpo-output" class="lab-output" aria-live="polite"></div><p class="section-spacer">A lower pairwise loss is not evidence of more truthful answers. Evaluate grounded correctness and label quality separately.</p></section></div>`;
     updateLabs();
-    main.insertAdjacentHTML("beforeend", '<div class="personal-strip"><span class="strip-icon" aria-hidden="true">⌨</span><div><h3>Now write the PyTorch.</h3><p>Six guided coding exercises, hints, live code previews, and a runnable notebook with tests.</p></div><a href="#coding">Open coding lab &rarr;</a></div>');
+    main.insertAdjacentHTML("beforeend", `<div class="personal-strip"><span class="strip-icon" aria-hidden="true">⌨</span><div><h3>Now write the PyTorch.</h3><p>${CODING_LAB.length} guided coding exercises, hints, live code previews, and a runnable notebook with tests.</p></div><a href="#coding">Open coding lab &rarr;</a></div>`);
   }
   function exerciseCode(exercise, answers) {
     return exercise.scaffold.replace(/__SLOT_(\d+)__/g, (_, index) => answers[Number(index)]?.trim() || "...");
@@ -169,6 +174,7 @@
     const notebook = spark ? "spark-exercises.ipynb" : "pytorch-exercises.ipynb";
     const answers = state.coding[exercise.id] || exercise.slots.map(() => "");
     main.innerHTML = `<div class="page-heading"><div><span class="eyebrow">${runtime.toUpperCase()} / LEARN BY WRITING</span><h1>${spark ? "Think in data. Write the transformation." : "From an equation to working code."}</h1><p class="intro">${exercises.length} exercises. Fill the missing expressions, inspect the assembled code, and explain the result before opening the solution.</p></div></div><div class="filter-bar"><a class="filter-chip ${spark ? "" : "active"}" href="#coding">PyTorch coding</a><a class="filter-chip ${spark ? "active" : ""}" href="#spark-coding">Spark add-on</a></div><div class="coding-notice"><strong>Two environments. An honest boundary.</strong><p>Browser checks compare supported reference expressions; they do not execute Python or prove semantic equivalence. The notebook runs real ${runtime} assertions in your own compatible environment. No code is sent to a service.</p><a class="button secondary small-button" href="${notebook}" download>Download the runnable notebook &darr;</a><a class="button text small-button" href="${notebook}" target="_blank" rel="noopener">Open notebook file ↗</a></div><div class="coding-selector"><label for="coding-exercise">CHOOSE AN EXERCISE</label><select id="coding-exercise">${exercises.map((item, index) => `<option value="${index}" ${index === codingIndex ? "selected" : ""}>${index + 1}. ${escape(item.title)}</option>`).join("")}</select><span class="saved-label">${codingIndex + 1} of ${exercises.length}</span></div><div class="coding-layout"><section class="panel"><span class="eyebrow">${escape(exercise.level)}</span><h2>${escape(exercise.title)}</h2><p>${escape(exercise.objective)}</p><form id="coding-form">${exercise.slots.map((slot, index) => `<div class="coding-field"><label for="coding-slot-${index}"><span>${index + 1}</span> ${escape(slot.label)}</label><textarea id="coding-slot-${index}" data-coding-slot="${index}" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="${escape(slot.placeholder)}" aria-describedby="coding-feedback-${index}">${escape(answers[index])}</textarea><p id="coding-feedback-${index}" class="coding-feedback" hidden></p><details><summary>Need a hint?</summary><p>${escape(slot.hint)}</p></details></div>`).join("")}<div id="coding-result" role="status" aria-live="polite"></div><div class="quiz-controls"><button class="button" type="submit">Check expressions &rarr;</button><button class="button secondary" type="button" id="reset-exercise">Clear this exercise</button></div><div id="note-status" class="save-status" aria-live="polite">Expressions save on this browser</div></form></section><section class="panel coding-preview"><span class="eyebrow">LIVE PYTHON PREVIEW / NOT EXECUTED</span><pre class="code-block"><code id="assembled-code">${escape(exerciseCode(exercise, answers))}</code></pre><h3>Expected behavior</h3><p>${escape(exercise.expected)}</p><details><summary>Inspect the real notebook tests</summary><pre class="code-block"><code>${escape(exercise.tests)}</code></pre></details><details><summary>Reveal the reference solution</summary><pre class="code-block"><code>${escape(exerciseCode(exercise, exercise.slots.map(slot => slot.answers[0])))}</code></pre><p>${escape(exercise.explanation)}</p></details><a class="button text" href="#lesson/${exercise.lesson}">Review the related chapter &rarr;</a></section></div><div class="lesson-actions"><button class="button secondary" id="previous-exercise" ${codingIndex === 0 ? "disabled" : ""}>&larr; Previous exercise</button><button class="button" id="next-exercise" ${codingIndex === exercises.length - 1 ? "disabled" : ""}>Next exercise &rarr;</button></div><details class="section-spacer"><summary>How to run the notebook and use the checks</summary><p>Open the notebook in VS Code with a compatible Jupyter/Python kernel. ${spark ? "Install a compatible PySpark distribution and Java runtime; configure JAVA_HOME as required by that Spark release. The notebook uses a local[2] session and classic Spark APIs, not Spark Connect." : "Install a compatible PyTorch build if needed. The exercises use CPU tensors and need no checkpoint download or CUDA device."} Fill each ellipsis, then run its separate test cell. Reference solutions appear at the end as text, not automatically executed.</p><p>The assertions cover toy inputs and selected failure cases, not every production input. A different valid expression may require notebook execution to verify. No private data is needed.</p></details>`;
+    if (!spark) main.querySelector(".coding-notice").insertAdjacentHTML("beforeend", '<p>Original exercises covering topics from the <a href="https://github.com/Devinterview-io/pytorch-interview-questions" target="_blank" rel="noopener noreferrer">Devinterview PyTorch checklist</a>; its answers are not reproduced. The NumPy bridge exercise additionally needs NumPy in your notebook environment. Explore <a href="#lesson/pytorch">the interactive chapter examples</a> before coding.</p>');
   }
   function checkCoding() {
     const exercise = codingExercises()[codingIndex];
@@ -264,11 +270,16 @@
     const hash = location.hash.slice(1) || "home";
     const [page, id] = hash.split("/");
     const lesson = page === "lesson" ? lessonById(id) : null;
-    const validPage = ["home", "curriculum", "visuals", "lab", "coding", "spark-coding", "practice", "exam"].includes(page) || lesson;
+    let validPage = ["home", "curriculum", "visuals", "lab", "coding", "spark-coding", "practice", "exam"].includes(page) || lesson;
     const nextTrack = page === "spark-coding" ? "spark" : "pytorch";
     if ((page === "coding" || page === "spark-coding") && nextTrack !== codingTrack) {
       codingTrack = nextTrack;
       codingIndex = 0;
+    }
+    if ((page === "coding" || page === "spark-coding") && id) {
+      const requestedIndex = codingExercises().findIndex(exercise => exercise.id === id);
+      if (requestedIndex < 0) validPage = false;
+      else codingIndex = requestedIndex;
     }
     document.querySelectorAll("[data-nav]").forEach(link => {
       const active = link.dataset.nav === (lesson ? "curriculum" : page === "spark-coding" ? "coding" : page);
@@ -311,8 +322,7 @@
       lessonPage(lessonById(location.hash.split("/")[1]));
       document.getElementById("concept-check").scrollIntoView();
     } else if (element.id === "next-exercise" || element.id === "previous-exercise") {
-      codingIndex += element.id === "next-exercise" ? 1 : -1;
-      coding();
+      selectCodingExercise(codingIndex + (element.id === "next-exercise" ? 1 : -1));
       main.focus();
       window.scrollTo(0, 0);
     } else if (element.id === "reset-exercise") {
@@ -373,8 +383,7 @@
   });
   main.addEventListener("change", event => {
     if (event.target.id === "coding-exercise") {
-      codingIndex = Number(event.target.value);
-      coding();
+      selectCodingExercise(Number(event.target.value));
     } else if (event.target.name && event.target.name.startsWith("exam-") && activeExam && !examResult) {
       examAnswers[Number(event.target.name.slice(5))] = Number(event.target.value);
       document.getElementById("exam-answered").textContent = `${Object.keys(examAnswers).length} / ${examCount} answered`;

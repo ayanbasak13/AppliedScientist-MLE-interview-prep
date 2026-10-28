@@ -279,7 +279,105 @@ const VISUALS = (() => {
       ${block(7, "SGD update -> run forward again", `Only W changes; loss before / after (lr=${state.learningRate})`, [b.loss, snapshot.after.loss])}
       <div class="viz-training-loop">Updated W &uarr; returns to the vocabulary head. The next forward pass uses new weights.</div></div>`;
   }
+  function torchStorageState(mode, cell, replacement) {
+    if (!["view", "copy", "detach"].includes(mode) || !Number.isInteger(cell) || cell < 0 || cell > 5 || !Number.isFinite(replacement)) {
+      throw new RangeError("Storage demo needs a known mode, cell 0..5, and a finite replacement.");
+    }
+    const original = [[1, 2, 3], [4, 5, 6]];
+    const result = transpose(original);
+    const row = Math.floor(cell / 2);
+    const column = cell % 2;
+    result[row][column] = replacement;
+    const source = original.map(items => [...items]);
+    if (mode !== "copy") source[column][row] = replacement;
+    return { original, source, result, row, column, shares: mode !== "copy", strides: mode === "copy" ? [2, 1] : [1, 3] };
+  }
+  function torchGradState(x, branch, detached, passes, clear) {
+    if (!Number.isFinite(x) || !["square", "linear"].includes(branch) || !Number.isInteger(passes) || passes < 1 || passes > 3 ||
+        typeof detached !== "boolean" || typeof clear !== "boolean") {
+      throw new RangeError("Gradient demo requires a finite x, known branch, 1..3 passes, and boolean modes.");
+    }
+    const h = 3 * x;
+    const loss = branch === "square" ? h * h : h;
+    const hGradient = branch === "square" ? 2 * h : 1;
+    return { h, loss, hGradient: detached ? null : hGradient,
+      xGradient: detached ? null : hGradient * 3 * (clear ? 1 : passes) };
+  }
+  function batchingSchedule(capacity, maxWait) {
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100 || !Number.isFinite(maxWait) || maxWait < 0 || maxWait > 100) {
+      throw new RangeError("Batching capacity must be 1..100 and maximum collection wait 0..100 ms.");
+    }
+    const arrivals = [0, 4, 7, 11, 16, 24, 33, 60];
+    const queue = [];
+    const batches = [];
+    const requests = [];
+    let next = 0;
+    let time = 0;
+    const enqueue = () => {
+      while (next < arrivals.length && arrivals[next] <= time) queue.push(next++);
+    };
+    while (next < arrivals.length || queue.length) {
+      if (!queue.length) time = Math.max(time, arrivals[next]);
+      enqueue();
+      const deadline = arrivals[queue[0]] + maxWait;
+      while (queue.length < capacity && time < deadline) {
+        time = next < arrivals.length ? Math.min(deadline, arrivals[next]) : deadline;
+        enqueue();
+      }
+      const ids = queue.splice(0, capacity);
+      const start = time;
+      time += 12 + 4 * ids.length;
+      batches.push({ ids, start, finish: time });
+      ids.forEach(id => requests.push({ id, arrival: arrivals[id], start, finish: time, latency: time - arrivals[id] }));
+    }
+    requests.sort((a, b) => a.id - b.id);
+    const latencies = requests.map(request => request.latency).sort((a, b) => a - b);
+    return { batches, requests, elapsed: time, p50: latencies[Math.ceil(0.5 * latencies.length) - 1],
+      p95: latencies[Math.ceil(0.95 * latencies.length) - 1], throughput: 1000 * requests.length / time };
+  }
   const specs = {
+    "torch-storage": {
+      title: "Tensor storage: a new shape is not always a new allocation",
+      subtitle: "Predict which source cell changes when writing through a transpose, an independent contiguous copy, or a detached view. JavaScript simulation, not Python execution.",
+      initial: () => ({ mode: "view", cell: 2, value: 9 }),
+      controls: id => `<div class="viz-controls">${control(`${id}-mode`, "Operation that creates y", select(`${id}-mode`, "mode", [["view", "x.t(): shared transposed view"], ["copy", "x.t().contiguous(): independent copy here"], ["detach", "x.t().detach(): still shares storage"]], "view"))}${control(`${id}-cell`, "Cell of y to overwrite", select(`${id}-cell`, "cell", Array.from({ length: 6 }, (_, i) => [i, `y[${Math.floor(i / 2)}, ${i % 2}]`]), 2))}${control(`${id}-value`, "Replacement value", range(`${id}-value`, "value", -3, 12, 9))}</div>`,
+      paint: state => {
+        const s = torchStorageState(state.mode, state.cell, state.value);
+        const expression = { view: "x.t()", copy: "x.t().contiguous()", detach: "x.t().detach()" }[state.mode];
+        return `<div class="viz-equation-row">${matrix("x before [2,3]", s.original)}<span>&rarr;</span>${matrix("y after the write [3,2]", s.result, { row: s.row, column: s.column, hit: true })}<span>&rarr;</span>${matrix("x after the write [2,3]", s.source, { row: s.column, column: s.row, hit: true })}</div>${formula(`y = ${expression}<br>y[${s.row}, ${s.column}] = ${state.value}<br>View mapping: y[r,c] refers to x[c,r], offset = r + 3*c when storage is shared.`)}<div class="viz-metrics">${metric("Shares x storage?", s.shares ? "Yes" : "No", "torch-shares")}${metric("y strides, in elements", `[${s.strides.join(", ")}]`, "torch-strides")}${metric("y contiguous?", state.mode === "copy" ? "Yes" : "No")}</div>${note("x starts contiguous with strides [3,1]. The transpose changes metadata, not element order in storage. This non-contiguous transpose needs a copy for contiguous(). In general contiguous() can return the same tensor when already contiguous; reshape can copy or return a view. detach cuts autograd history, not storage sharing. The demo uses tensors without gradients; in-place writes on differentiable views have additional autograd rules.")}`;
+      }
+    },
+    "torch-autograd": {
+      title: "Autograd: see the chain rule, graph breaks, and accumulated gradients",
+      subtitle: "Use h=3x and choose a squared or linear objective. Each pass rebuilds the graph; no retained graph is needed.",
+      initial: () => ({ x: 2, branch: "square", detached: false, passes: 2, clear: true }),
+      controls: id => `<div class="viz-controls">${control(`${id}-x`, "Leaf x value", range(`${id}-x`, "x", -3, 3, 2))}${control(`${id}-branch`, "Forward branch", select(`${id}-branch`, "branch", [["square", "L = h squared"], ["linear", "L = h"]], "square"))}${control(`${id}-passes`, "Fresh forward/backward passes", select(`${id}-passes`, "passes", [[1, "1"], [2, "2"], [3, "3"]], 2))}<label class="viz-check"><input type="checkbox" data-control="clear" checked> Clear x.grad before each pass</label><label class="viz-check"><input type="checkbox" data-control="detached"> Detach h before computing loss</label></div>`,
+      paint: state => {
+        const s = torchGradState(state.x, state.branch, state.detached, state.passes, state.clear);
+        return `<div class="viz-flow-row">${node("Leaf x", `value ${state.x}; requires_grad=True`)}${arrow}${node("h = 3x", `value ${s.h}${state.detached ? "; DETACHED" : "; retain_grad() for inspection"}`, state.detached ? "warm" : "accent")}${arrow}${node(state.branch === "square" ? "L = h squared" : "L = h", `value ${s.loss}`)}</div>${state.detached ? `<div class="viz-explanation" role="status"><strong>Expected PyTorch error, not a successful zero-gradient update:</strong> this detached loss has requires_grad=False. Calling loss.backward() raises RuntimeError because there is no differentiable path. Fresh x.grad stays None.</div>` : formula(`Backward: dL/dh = ${s.hGradient}; dh/dx = 3<br>Per-pass dL/dx = ${s.hGradient} * 3 = ${s.hGradient * 3}<br>${state.clear ? "Clear before each pass: only the latest derivative remains." : `${state.passes} passes without clearing: derivatives add in x.grad.`}`)}<div class="viz-metrics">${metric("h.grad on final pass", s.hGradient === null ? "None / backward errors" : String(s.hGradient), "torch-h-grad")}${metric("x.grad after passes", s.xGradient === null ? "None / backward errors" : String(s.xGradient), "torch-x-grad")}${metric("Weights updated?", "No optimizer step")}</div>${note("Leaf .grad and retained non-leaf .grad are different storage locations. Clearing versus accumulating is deliberate. Modern PyTorch tensors already support autograd; the old Variable wrapper is not needed. This is a deterministic arithmetic simulator; use the notebook for real backward assertions.")}`;
+      }
+    },
+    "torch-module": {
+      title: "Module registration: correct forward output is not enough",
+      subtitle: "Two bias-free Linear(2,2) layers map [1,2] to [2,4]. Change their container and inspect parameter discovery and recursive eval behavior.",
+      initial: () => ({ container: "module", evaluation: true }),
+      controls: id => `<div class="viz-controls">${control(`${id}-container`, "Store the two submodules in", select(`${id}-container`, "container", [["module", "nn.ModuleList: registered"], ["plain", "Python list: not registered"]], "module"))}<label class="viz-check"><input type="checkbox" data-control="evaluation" checked> Call parent.eval()</label></div>`,
+      paint: state => {
+        const registered = state.container === "module";
+        return `<div class="viz-equation-row">${matrix("Input", [[1, 2]])}<span>&rarr;</span>${matrix("Layer 1 weight", [[1, 0], [0, 2]])}<span>&rarr;</span>${matrix("Intermediate", [[1, 4]])}<span>&rarr;</span>${matrix("Layer 2 weight", [[2, 0], [0, 1]])}<span>&rarr;</span>${matrix("Output in BOTH cases", [[2, 4]])}</div>${formula(`nn.Linear uses x @ weight.T.<br>self.layers = ${registered ? "nn.ModuleList([layer1, layer2])" : "[layer1, layer2]"}<br>forward: for layer in self.layers: x = layer(x)`)}<div class="viz-metrics">${metric("Registered parameter elements", registered ? "8 (2 x 2 x 2)" : "0", "torch-registered")}${metric("Saved weight tensors", registered ? "2" : "0")}${metric("Child training flag", state.evaluation && registered ? "False" : "True", "torch-child-mode")}</div>${registered ? `<div class="viz-explanation">model.parameters(), state_dict(), .to(device), and .eval() can discover these layers. ModuleList registers a collection; it does not implement a forward pipeline for you. Sequential is suitable for a simple chained pipeline.</div>` : `<div class="viz-explanation" role="status"><strong>Expected failure:</strong> this parent has no other parameters, so constructing SGD(model.parameters(), ...) raises ValueError for an empty parameter list. Autograd may still produce the layers' gradients, but parameter discovery does not find them. Parent .to() and .eval() also do not traverse the plain list.</div>`}${note("The parent and both layers start in training mode before the optional eval call. Linear itself does not change arithmetic in eval mode; its flag here demonstrates recursive propagation. Modules such as Dropout would have a behavioral consequence. The independent layer weights are fixed in this browser simulation.")}`;
+      }
+    },
+    "fde-batching": {
+      title: "Single-GPU batching: trace every synchronous request",
+      subtitle: "Eight fixed-size requests arrive at 0,4,7,11,16,24,33,60 ms. Tune a request-count cap and oldest-request collection timer; see the resulting queue and batches.",
+      initial: () => ({ capacity: 4, wait: 20, target: 60 }),
+      controls: id => `<div class="viz-controls">${control(`${id}-capacity`, "Maximum requests per batch", select(`${id}-capacity`, "capacity", [[1, "1"], [2, "2"], [4, "4"], [8, "8"], [100, "100 (reported interview cap)"]], 4))}${control(`${id}-wait`, "Collection timer from oldest arrival (ms)", select(`${id}-wait`, "wait", [[0, "0"], [8, "8"], [20, "20"], [40, "40"]], 20))}${control(`${id}-target`, "End-to-end latency target (ms)", select(`${id}-target`, "target", [[40, "40"], [60, "60"], [100, "100"]], 60))}</div>`,
+      paint: state => {
+        const s = batchingSchedule(state.capacity, state.wait);
+        const misses = s.requests.filter(request => request.latency > state.target).length;
+        return `<div class="viz-flow-row">${node("Admission", "Auth, quota, queue bound")}${arrow}${node("FIFO + timer", "Collect or launch when full")}${arrow}${node("One GPU", "One fixed batch at a time", "accent")}${arrow}${node("Fan out", "Each caller waits for its result")}</div><div class="viz-batch-timeline" role="group" aria-label="Batch service timeline">${s.batches.map((batch, i) => `<div><span>Batch ${i + 1}</span><div class="viz-batch-track"><i style="margin-left:${100 * batch.start / s.elapsed}%;width:${100 * (batch.finish - batch.start) / s.elapsed}%">${batch.ids.map(id => String.fromCharCode(65 + id)).join("")}</i></div><small>${batch.start}-${batch.finish} ms</small></div>`).join("")}</div><div class="viz-comparison-scroll"><table class="concept-table"><caption>End-to-end latency includes collection AND waiting behind busy GPU batches</caption><thead><tr><th>Request</th><th>Arrival</th><th>GPU start</th><th>Finish</th><th>Queue wait</th><th>Total latency</th></tr></thead><tbody>${s.requests.map(request => `<tr><td>${String.fromCharCode(65 + request.id)}</td><td>${request.arrival}</td><td>${request.start}</td><td>${request.finish}</td><td>${request.start - request.arrival}</td><td class="${request.latency > state.target ? "viz-run-fail" : "viz-run-pass"}">${request.latency} ms</td></tr>`).join("")}</tbody></table></div><div class="viz-metrics">${metric("Batches", s.batches.length, "fde-batches")}${metric("p50 / p95 latency", `${s.p50} / ${s.p95} ms`, "fde-latency")}${metric("Toy completions / second", s.throughput.toFixed(1))}${metric(`Above ${state.target} ms target`, `${misses} / 8`, "fde-misses")}</div>${note("Assumed service time S(n)=12+4n ms; not measured GPU performance. Batches do not overlap and all requests are fixed-size. The timer expires from the oldest arrival, but a busy GPU can cause longer waiting. The latency target only marks misses; it does not cancel requests in this toy. p50/p95 use nearest-rank empirical percentiles on eight observations, not production tail estimates. Real LLM serving additionally needs token/KV budgets, variable output lengths, streaming, cancellation, and often continuous batching.")}`;
+      }
+    },
     "training-state": {
       title: "Inside a training step: follow the actual tensor states",
       subtitle: "Eight numerical snapshots of one tiny decoder. Follow a token row, then inspect an exact gradient and output-head SGD update.",
@@ -565,6 +663,22 @@ const VISUALS = (() => {
   };
 
   const flows = {
+    "openai-aie": ["An original AI/ML engineering rehearsal", [
+      ["Match role", "Confirm application versus ML-systems expectations, assessment format, allowed libraries, and tool permissions."],
+      ["Implement", "Build one numerical or integration reference with explicit shapes, valid inputs, errors, and deterministic fixtures."],
+      ["Design", "Specify workflow/state boundaries and calculate memory, latency, quotas, and failure recovery under stated assumptions."],
+      ["Evaluate", "Version datasets and graders, inspect critical slices, quantify uncertainty, and define release gates before measuring."],
+      ["Operate", "Test overload, cancellation, restart, malformed output, privacy boundaries, and rollback in a small synthetic rehearsal."],
+      ["Explain", "Present your own contribution and evidence candidly. Do not treat a third-party interview guide as an official rubric."]
+    ]],
+    "anthropic-fde": ["An original FDE rehearsal: discovery to safe deployment", [
+      ["Clarify", "Identify the customer workflow, baseline, users, data boundary, constraints, and measurable outcome before recommending a model."],
+      ["Prototype", "Deliver the smallest deterministic vertical slice. Use synthetic fixtures, typed interfaces, and explicit error behavior."],
+      ["Bound", "Specify quotas, request/token budgets, queue bounds, deadlines, idempotency, and backpressure."],
+      ["Measure", "Compare a fixed baseline on customer-representative examples; measure task quality, latency, cost, and unsafe side effects separately."],
+      ["Launch", "Use staged access, approvals for consequential writes, observability, a fallback, and an owned rollback plan."],
+      ["Reflect", "Explain evidence and trade-offs candidly. Confirm the actual interview format with the recruiter; this is not an official Anthropic rubric."]
+    ]],
     transformers: ["From hidden states to probabilities", [
       ["Token IDs", "Tokenizer output indexes learned embeddings; token boundaries are model-specific."],
       ["Hidden states", "Embeddings and position handling represent tokens before each decoder layer."],
@@ -699,7 +813,7 @@ const VISUALS = (() => {
     inference: ["kv", "paged", "flash"], cuda: ["gpu"], rag: ["rag", "rag-scorecard"],
     agents: ["agent"], "agent-eval": ["agent-scorecard", "agent", "rag"], "system-design": ["rag", "agent"]
   };
-  const atlasTypes = ["architecture", "attention", "heads", "training-state", "perplexity", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard"];
+  const atlasTypes = ["architecture", "attention", "heads", "training-state", "perplexity", "torch-storage", "torch-autograd", "torch-module", "kv", "paged", "flash", "gpu", "rag", "rag-scorecard", "agent", "agent-scorecard", "fde-batching"];
 
   function widgetMarkup(type) {
     const spec = specs[type];
@@ -715,14 +829,14 @@ const VISUALS = (() => {
     return `<section id="visual-explainer" class="lesson-visuals" aria-label="Visual concept walkthroughs"><div class="section-heading"><div><span class="eyebrow">SEE IT BEFORE YOU DERIVE IT</span><h2>A visual mental model.</h2></div><a href="#visuals">Open visual atlas &rarr;</a></div>${lessonId === "transformers" ? widgets + flow : flow + widgets}</section>`;
   }
   function sectionMarkup(lessonId, section) {
-    if (lessonId === "training" && section.visual) return widgetMarkup(section.visual);
+    if (["training", "pytorch", "anthropic-fde", "openai-aie"].includes(lessonId) && section.visual) return widgetMarkup(section.visual);
     if (lessonId !== "transformers") return "";
     if (section.diagramStep === 3) return widgetMarkup("attention");
     if (section.diagramStep === 6) return widgetMarkup("heads");
     return "";
   }
   function atlasMarkup() {
-    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", "training-state": "Training states", perplexity: "Loss + perplexity", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
+    return `<div class="page-heading"><div><span class="eyebrow">SHAPES. MEMORY. DECISIONS.</span><h1>Make the invisible visible.</h1><p class="intro">${atlasTypes.length} interactive explainers. Follow the numbers, inspect the memory, and step through the decisions—not just the equations.</p></div></div><div class="viz-atlas-jumps" aria-label="Jump to a visual">${atlasTypes.map(type => `<button type="button" class="filter-chip" data-viz-scroll="${type}">${{ attention: "Q/K/V math", architecture: "Architecture families", heads: "Multi-head", "training-state": "Training states", perplexity: "Loss + perplexity", "torch-storage": "Tensor storage", "torch-autograd": "Autograd", "torch-module": "Module registration", kv: "KV cache", paged: "PagedAttention", flash: "FlashAttention", gpu: "CUDA", rag: "RAG + eval", "rag-scorecard": "RAG scorecard", agent: "Agent loop", "agent-scorecard": "Agent reliability", "fde-batching": "FDE batching" }[type]}</button>`).join("")}</div><p class="viz-note">All graphics are local educational simulations. Numerical examples use tiny synthetic inputs. They do not execute Python, run a model or GPU, perform tool calls, or change your saved study progress.</p>${atlasTypes.map(widgetMarkup).join("")}`;
   }
   function updateWidget(root, state) {
     const type = root.dataset.visual;
@@ -821,5 +935,5 @@ const VISUALS = (() => {
       destination.focus({ preventScroll: true });
     }));
   }
-  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics, tokenObjective, perplexityMetrics, trainingForward, trainingSnapshot } };
+  return { lessonMarkup, sectionMarkup, atlasMarkup, mount, math: { multiply, transpose, softmax, attention, onlineAttention, pageAllocation, rate, ragDecisionMetrics, repeatedRunMetrics, tokenObjective, perplexityMetrics, trainingForward, trainingSnapshot, torchStorageState, torchGradState, batchingSchedule } };
 })();
